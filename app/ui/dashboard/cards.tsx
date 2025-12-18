@@ -1,64 +1,115 @@
+// app/ui/dashboard/cards.tsx
 import {
   BanknotesIcon,
-  ClockIcon,
-  UserGroupIcon,
-  InboxIcon,
+  PresentationChartLineIcon,
+  ScaleIcon,
+  GlobeAltIcon,
 } from '@heroicons/react/24/outline';
 import { lusitana } from '@/app/ui/fonts';
-import { fetchCardData } from '@/app/lib/data';
+import { fetchMarketIndices } from '@/app/lib/ficc-data'; // 위에서 만든 파일 import
 
 const iconMap = {
-  collected: BanknotesIcon,
-  customers: UserGroupIcon,
-  pending: ClockIcon,
-  invoices: InboxIcon,
+  'USD/KRW': BanknotesIcon,
+  'KTB 3Y': ScaleIcon,
+  'KTB 10Y': ScaleIcon,
+  'KOSPI': PresentationChartLineIcon,
 };
 
-export function Card({
-  title,
-  value,
-  type,
-}: {
-  title: string;
-  value: number | string;
-  type: 'invoices' | 'customers' | 'pending' | 'collected';
-}) {
-  const Icon = iconMap[type];
-
-  return (
-    <div className="rounded-xl bg-gray-50 p-2 shadow-sm">
-      <div className="flex p-4">
-        {Icon ? <Icon className="h-5 w-5 text-gray-700" /> : null}
-        <h3 className="ml-2 text-sm font-medium">{title}</h3>
-      </div>
-      <p
-        className={`${lusitana.className}
-          truncate rounded-xl bg-white px-4 py-8 text-center text-2xl`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
 export default async function CardWrapper() {
-  const {
-    numberOfCustomers,
-    numberOfInvoices,
-    totalPaidInvoices,
-    totalPendingInvoices,
-  } = await fetchCardData();
+  const indices = await fetchMarketIndices();
 
   return (
     <>
-      <Card title="Collected" value={totalPaidInvoices} type="collected" />
-      <Card title="Pending" value={totalPendingInvoices} type="pending" />
-      <Card title="Total Invoices" value={numberOfInvoices} type="invoices" />
-      <Card
-        title="Total Customers"
-        value={numberOfCustomers}
-        type="customers"
-      />
+      {indices.map((index) => {
+        // 아이콘 매핑 (기본값 GlobeAltIcon)
+        const Icon = iconMap[index.name as keyof typeof iconMap] || GlobeAltIcon;
+        const isUp = index.trend === 'up';
+
+        return (
+          <div key={index.name} className="rounded-xl bg-gray-50 p-2 shadow-sm">
+            <div className="flex p-4 items-center justify-between">
+              <div className="flex items-center">
+                <Icon className="h-5 w-5 text-gray-700" />
+                <h3 className="ml-2 text-sm font-medium">{index.name}</h3>
+              </div>
+              {/* 등락폭 표시 */}
+              <span className={`text-xs font-bold px-2 py-1 rounded-full ${isUp ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                {index.change}
+              </span>
+            </div>
+            <p
+              className={`${lusitana.className}
+                truncate rounded-xl bg-white px-4 py-8 text-center text-2xl font-bold`}
+            >
+              {index.value}
+            </p>
+          </div>
+        );
+      })}
     </>
   );
 }
+// import {
+//   BanknotesIcon,
+//   ClockIcon,
+//   UserGroupIcon,
+//   InboxIcon,
+// } from '@heroicons/react/24/outline';
+// import { lusitana } from '@/app/ui/fonts';
+// import { fetchCardData } from '@/app/lib/data';
+//
+// const iconMap = {
+//   collected: BanknotesIcon,
+//   customers: UserGroupIcon,
+//   pending: ClockIcon,
+//   invoices: InboxIcon,
+// };
+//
+// export function Card({
+//   title,
+//   value,
+//   type,
+// }: {
+//   title: string;
+//   value: number | string;
+//   type: 'invoices' | 'customers' | 'pending' | 'collected';
+// }) {
+//   const Icon = iconMap[type];
+//
+//   return (
+//     <div className="rounded-xl bg-gray-50 p-2 shadow-sm">
+//       <div className="flex p-4">
+//         {Icon ? <Icon className="h-5 w-5 text-gray-700" /> : null}
+//         <h3 className="ml-2 text-sm font-medium">{title}</h3>
+//       </div>
+//       <p
+//         className={`${lusitana.className}
+//           truncate rounded-xl bg-white px-4 py-8 text-center text-2xl`}
+//       >
+//         {value}
+//       </p>
+//     </div>
+//   );
+// }
+//
+// export default async function CardWrapper() {
+//   const {
+//     numberOfCustomers,
+//     numberOfInvoices,
+//     totalPaidInvoices,
+//     totalPendingInvoices,
+//   } = await fetchCardData();
+//
+//   return (
+//     <>
+//       <Card title="Collected" value={totalPaidInvoices} type="collected" />
+//       <Card title="Pending" value={totalPendingInvoices} type="pending" />
+//       <Card title="Total Invoices" value={numberOfInvoices} type="invoices" />
+//       <Card
+//         title="Total Customers"
+//         value={numberOfCustomers}
+//         type="customers"
+//       />
+//     </>
+//   );
+// }
