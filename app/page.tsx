@@ -13,14 +13,9 @@ export default function Page() {
       <div className="mt-4 flex grow flex-col gap-4 md:flex-row">
         <div className="flex flex-col justify-center gap-6 rounded-lg bg-gray-50 px-6 py-10 md:w-2/5 md:px-20">
           <div className="h-0 w-0 border-b-[30px] border-l-[20px] border-r-[20px] border-b-black border-l-transparent border-r-transparent" />
-          <p
-            className={`${lusitana.className} text-xl text-gray-800 md:text-3xl md:leading-normal`}
-          >
-            <strong>Welcome to Acme.</strong> This is the example for the{' '}
-            <a href="https://nextjs.org/learn/" className="text-blue-500">
-              Next.js Learn Course
-            </a>
-            , brought to you by Vercel.
+          <p className={`${lusitana.className} text-xl text-gray-800 md:text-3xl md:leading-normal`}>
+            <strong>KIS FICC 본부 뷰어 시스템입니다.</strong>{' '}
+            이곳에서 실시간 시장 데이터와 포트폴리오를 확인할 수 있습니다.
           </p>
           <Link
             href="/login"
