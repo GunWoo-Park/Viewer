@@ -5,21 +5,20 @@ export const authConfig = {
     signIn: '/login',
   },
   callbacks: {
+    // 기존의 무조건 return true 부분을 지우고 아래 주석을 해제하세요.
     authorized({ auth, request: { nextUrl } }) {
-      // 로그인 여부 상관없이 항상 통과시킵니다.
+      const isLoggedIn = !!auth?.user;
+      const isOnDashboard = nextUrl.pathname.startsWith('/dashboard');
+
+      if (isOnDashboard) {
+        if (isLoggedIn) return true;
+        return false; // 로그인 안 된 사용자는 로그인 페이지로 리다이렉트
+      } else if (isLoggedIn) {
+        // ★ 핵심: 이미 로그인된 사용자가 로그인 페이지 등에 있으면 대시보드로 보냄
+        return Response.redirect(new URL('/dashboard', nextUrl));
+      }
       return true;
     },
-    // authorized({ auth, request: { nextUrl } }) {
-    //   const isLoggedIn = !!auth?.user; // Checks if a user is logged in by converting the presence of auth?.user to a boolean.
-    //   const isOnDashboard = nextUrl.pathname.startsWith('/dashboard');
-    //   if (isOnDashboard) {
-    //     if (isLoggedIn) return true;
-    //     return false; // Redirect unauthenticated users to login page
-    //   } else if (isLoggedIn) {
-    //     return Response.redirect(new URL('/dashboard', nextUrl));
-    //   }
-    //   return true;
-    // },
   },
   providers: [],
 } satisfies NextAuthConfig;
