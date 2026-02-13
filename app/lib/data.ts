@@ -7,6 +7,10 @@ import {
   LatestInvoiceRaw,
   User,
   Revenue,
+  BTBDashboardData,
+  PnlAttributionRow,
+  Strucprdm,
+  StrucprdmSummary,
 } from './definitions';
 import { formatCurrency } from './utils';
 import { unstable_noStore as noStore} from "next/cache";
@@ -264,5 +268,292 @@ export async function getUser(email: string) {
   } catch (error) {
     console.error('Failed to fetch user:', error);
     throw new Error('Failed to fetch user.');
+  }
+}
+
+// --- FICC 대시보드 데이터 조회 함수 ---
+
+export async function fetchLatestFiccDate(): Promise<string> {
+  noStore();
+
+  try {
+    const data = await sql`
+      SELECT DISTINCT std_dt
+      FROM book_pnl
+      ORDER BY std_dt DESC
+      LIMIT 1
+    `;
+    return data.rows[0]?.std_dt || '';
+  } catch (error) {
+    console.error('Database Error:', error);
+    throw new Error('Failed to fetch latest FICC date.');
+  }
+}
+
+export async function fetchDashboardKPI(stdDt: string) {
+  noStore();
+
+  try {
+    const [assetData, liabilityData, pnlData] = await Promise.all([
+      sql`
+        SELECT COALESCE(SUM(pstn), 0) AS total
+        FROM asset_position
+        WHERE asst_lblt = '자산' AND std_dt = ${stdDt}
+      `,
+      sql`
+        SELECT COALESCE(SUM(pstn), 0) AS total
+        FROM asset_position
+        WHERE asst_lblt = '부채' AND std_dt = ${stdDt}
+      `,
+      sql`
+        SELECT
+          COALESCE(SUM(daily_pnl), 0) AS daily_pnl,
+          COALESCE(SUM(monthly_pnl), 0) AS monthly_pnl,
+          COALESCE(SUM(accmlt_pnl), 0) AS accmlt_pnl
+        FROM book_pnl
+        WHERE std_dt = ${stdDt}
+      `,
+    ]);
+
+    return {
+      totalAsset: Number(assetData.rows[0].total),
+      totalLiability: Number(liabilityData.rows[0].total),
+      dailyPnl: Number(pnlData.rows[0].daily_pnl),
+      monthlyPnl: Number(pnlData.rows[0].monthly_pnl),
+      accmltPnl: Number(pnlData.rows[0].accmlt_pnl),
+    };
+  } catch (error) {
+    console.error('Database Error:', error);
+    throw new Error('Failed to fetch dashboard KPI data.');
+  }
+}
+
+export async function fetchPnlAttribution(
+  stdDt: string,
+): Promise<PnlAttributionRow[]> {
+  noStore();
+
+  try {
+    const data = await sql`
+      SELECT
+        fp.fnd_nm AS name,
+        (COALESCE(fp.prc_pnl, 0) + COALESCE(fp.int_pnl, 0) + COALESCE(fp.trd_pnl, 0) + COALESCE(fp.mny_pnl, 0)) AS daily_pnl
+      FROM fund_pnl fp
+      INNER JOIN display_ordering d
+        ON fp.fnd_nm = d.nm AND d.table_name = 'fndpnlp'
+      WHERE fp.std_dt = ${stdDt}
+      ORDER BY d.display_order ASC
+    `;
+
+    return data.rows.map((row) => ({
+      name: row.name,
+      daily_pnl: Number(row.daily_pnl),
+    }));
+  } catch (error) {
+    console.error('Database Error:', error);
+    throw new Error('Failed to fetch PnL attribution data.');
+  }
+}
+
+export async function fetchBTBDashboardData(): Promise<BTBDashboardData | null> {
+  noStore();
+
+  try {
+    const latestDate = await fetchLatestFiccDate();
+    if (!latestDate) return null;
+
+    const [kpi, pnlAttribution] = await Promise.all([
+      fetchDashboardKPI(latestDate),
+      fetchPnlAttribution(latestDate),
+    ]);
+
+    // 날짜 포맷: YYYYMMDD → YYYY-MM-DD
+    const formattedDate = latestDate.replace(
+      /(\d{4})(\d{2})(\d{2})/,
+      '$1-$2-$3',
+    );
+
+    return {
+      latestDate: formattedDate,
+      totalBalance: kpi.totalAsset + kpi.totalLiability,
+      assetBalance: kpi.totalAsset,
+      liabilityBalance: kpi.totalLiability,
+      dailyPnl: kpi.dailyPnl,
+      monthlyPnl: kpi.monthlyPnl,
+      accmltPnl: kpi.accmltPnl,
+      pnlAttribution,
+    };
+  } catch (error) {
+    console.error('Database Error:', error);
+    // 테이블 미존재 등의 에러 시 null 반환 → page.tsx에서 안내 메시지 표시
+    return null;
+  }
+}
+
+// --- 구조화 상품 (strucprdm) 데이터 조회 함수 ---
+
+const STRUCPRDM_PER_PAGE = 15;
+
+export async function fetchStrucprdmSummary(): Promise<StrucprdmSummary | null> {
+  noStore();
+
+  try {
+    const [countData, notionalData, typeData, cntrData] = await Promise.all([
+      sql`
+        SELECT
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE curr = 'KRW') AS krw_count,
+          COUNT(*) FILTER (WHERE curr = 'USD') AS usd_count,
+          COUNT(*) FILTER (WHERE asst_lblt = '자산') AS asset_count,
+          COUNT(*) FILTER (WHERE asst_lblt = '부채') AS liability_count
+        FROM strucprdm
+      `,
+      sql`
+        SELECT
+          COALESCE(SUM(notn) FILTER (WHERE curr = 'KRW'), 0) AS krw_total,
+          COALESCE(SUM(notn) FILTER (WHERE curr = 'USD'), 0) AS usd_total
+        FROM strucprdm
+      `,
+      sql`
+        SELECT
+          CONCAT_WS(' / ',
+            NULLIF(type1, ''),
+            NULLIF(type2, ''),
+            NULLIF(type3, ''),
+            NULLIF(type4, '')
+          ) AS struct_type,
+          COUNT(*) AS count
+        FROM strucprdm
+        WHERE type1 IS NOT NULL AND type1 != ''
+        GROUP BY struct_type
+        ORDER BY count DESC
+        LIMIT 10
+      `,
+      sql`
+        SELECT cntr_nm, COUNT(*) AS count
+        FROM strucprdm
+        WHERE cntr_nm IS NOT NULL AND cntr_nm != ''
+        GROUP BY cntr_nm
+        ORDER BY count DESC
+        LIMIT 10
+      `,
+    ]);
+
+    return {
+      totalCount: Number(countData.rows[0].total),
+      krwCount: Number(countData.rows[0].krw_count),
+      usdCount: Number(countData.rows[0].usd_count),
+      assetCount: Number(countData.rows[0].asset_count),
+      liabilityCount: Number(countData.rows[0].liability_count),
+      krwNotionalTotal: Number(notionalData.rows[0].krw_total),
+      usdNotionalTotal: Number(notionalData.rows[0].usd_total),
+      typeDistribution: typeData.rows.map((r) => ({
+        struct_type: r.struct_type,
+        count: Number(r.count),
+      })),
+      cntrDistribution: cntrData.rows.map((r) => ({
+        cntr_nm: r.cntr_nm,
+        count: Number(r.count),
+      })),
+    };
+  } catch (error) {
+    console.error('Database Error:', error);
+    return null;
+  }
+}
+
+export async function fetchFilteredStrucprdm(
+  query: string,
+  currentPage: number,
+  callFilter: string = 'N',
+): Promise<Strucprdm[]> {
+  noStore();
+
+  const offset = (currentPage - 1) * STRUCPRDM_PER_PAGE;
+
+  try {
+    // callFilter: 'Y' = 콜된 종목만, 'N' = 미콜 종목만(기본), 'ALL' = 전체
+    const data = await sql<Strucprdm>`
+      SELECT *
+      FROM strucprdm
+      WHERE
+        (
+          obj_cd ILIKE ${`%${query}%`} OR
+          cntr_nm ILIKE ${`%${query}%`} OR
+          fnd_nm ILIKE ${`%${query}%`} OR
+          struct_cond ILIKE ${`%${query}%`} OR
+          type1 ILIKE ${`%${query}%`} OR
+          type2 ILIKE ${`%${query}%`} OR
+          type3 ILIKE ${`%${query}%`} OR
+          type4 ILIKE ${`%${query}%`} OR
+          tp ILIKE ${`%${query}%`} OR
+          curr ILIKE ${`%${query}%`} OR
+          asst_lblt ILIKE ${`%${query}%`}
+        )
+        AND (
+          ${callFilter} = 'ALL'
+          OR call_yn = ${callFilter}
+          OR (${callFilter} = 'N' AND call_yn IS NULL)
+        )
+      ORDER BY id ASC
+      LIMIT ${STRUCPRDM_PER_PAGE} OFFSET ${offset}
+    `;
+
+    return data.rows;
+  } catch (error) {
+    console.error('Database Error:', error);
+    throw new Error('Failed to fetch strucprdm data.');
+  }
+}
+
+export async function fetchStrucprdmPages(
+  query: string,
+  callFilter: string = 'N',
+): Promise<number> {
+  noStore();
+
+  try {
+    const count = await sql`
+      SELECT COUNT(*)
+      FROM strucprdm
+      WHERE
+        (
+          obj_cd ILIKE ${`%${query}%`} OR
+          cntr_nm ILIKE ${`%${query}%`} OR
+          fnd_nm ILIKE ${`%${query}%`} OR
+          struct_cond ILIKE ${`%${query}%`} OR
+          type1 ILIKE ${`%${query}%`} OR
+          type2 ILIKE ${`%${query}%`} OR
+          type3 ILIKE ${`%${query}%`} OR
+          type4 ILIKE ${`%${query}%`} OR
+          tp ILIKE ${`%${query}%`} OR
+          curr ILIKE ${`%${query}%`} OR
+          asst_lblt ILIKE ${`%${query}%`}
+        )
+        AND (
+          ${callFilter} = 'ALL'
+          OR call_yn = ${callFilter}
+          OR (${callFilter} = 'N' AND call_yn IS NULL)
+        )
+    `;
+
+    return Math.ceil(Number(count.rows[0].count) / STRUCPRDM_PER_PAGE);
+  } catch (error) {
+    console.error('Database Error:', error);
+    throw new Error('Failed to fetch strucprdm page count.');
+  }
+}
+
+export async function fetchStrucprdmById(objCd: string): Promise<Strucprdm | null> {
+  noStore();
+
+  try {
+    const data = await sql<Strucprdm>`
+      SELECT * FROM strucprdm WHERE obj_cd = ${objCd}
+    `;
+    return data.rows[0] || null;
+  } catch (error) {
+    console.error('Database Error:', error);
+    return null;
   }
 }

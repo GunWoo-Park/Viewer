@@ -1,9 +1,5 @@
-import { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: 'Customers',
-};
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <p>Customers Page</p>;
+  redirect('/dashboard');
 }

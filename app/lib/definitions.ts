@@ -86,3 +86,108 @@ export type InvoiceForm = {
   amount: number;
   status: 'pending' | 'paid';
 };
+
+// --- FICC 데이터 타입 ---
+
+export type BookPnl = {
+  std_dt: string;
+  book_nm: string;
+  daily_pnl: number;
+  monthly_pnl: number;
+  accmlt_pnl: number;
+};
+
+export type AssetPosition = {
+  std_dt: string;
+  asst_lblt: string;
+  nm: string;
+  pstn: number;
+  increase_amt: number;
+};
+
+export type FundPnl = {
+  std_dt: string;
+  fnd_clssfctn: string;
+  fnd_nm: string;
+  fnd_cd: string;
+  notn_amt: number;
+  prc_pnl: number;
+  int_pnl: number;
+  trd_pnl: number;
+  mny_pnl: number;
+  accmlt_pnl: number;
+};
+
+export type DisplayOrdering = {
+  nm: string;
+  display_order: number;
+  table_name: string;
+};
+
+export type PnlAttributionRow = {
+  name: string;
+  daily_pnl: number;
+};
+
+// --- 구조화 상품 타입 ---
+
+export type Strucprdm = {
+  id: number;
+  obj_cd: string;
+  fnd_cd: string;
+  fnd_nm: string;
+  cntr_nm: string;
+  asst_lblt: string;
+  tp: string;
+  trd_dt: string;
+  eff_dt: string;
+  mat_dt: string;
+  curr: string;
+  notn: number;
+  mat_prd: number;
+  call_yn: string;
+  risk_call_yn: string;
+  struct_cond: string;
+  pay_cond: string;
+  pay_freq: string;
+  pay_dcf: string;
+  rcv_cond: string;
+  rcv_freq: string;
+  rcv_dcf: string;
+  note: string;
+  call_dt: string;
+  trmntn_dt: string;
+  type1: string;
+  type2: string;
+  type3: string;
+  type4: string;
+  optn_freq: string;
+  call_notice: string;
+  add_optn: string;
+  upfrnt: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StrucprdmSummary = {
+  totalCount: number;
+  krwCount: number;
+  usdCount: number;
+  assetCount: number;
+  liabilityCount: number;
+  krwNotionalTotal: number;
+  usdNotionalTotal: number;
+  typeDistribution: { struct_type: string; count: number }[];
+  cntrDistribution: { cntr_nm: string; count: number }[];
+};
+
+export type BTBDashboardData = {
+  latestDate: string;
+  totalBalance: number;
+  assetBalance: number;
+  liabilityBalance: number;
+  dailyPnl: number;
+  monthlyPnl: number;
+  accmltPnl: number;
+  pnlAttribution: PnlAttributionRow[];
+};
