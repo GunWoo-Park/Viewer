@@ -72,18 +72,24 @@ export default async function StrucprdpTable({
                 <p className="font-medium">{formatNotional(p.notn, p.curr)}</p>
               </div>
               <div>
-                <p className="text-gray-400 text-xs">거래일 / 유효일</p>
-                <p>{formatDate(p.trd_dt)} / {formatDate(p.eff_dt)}</p>
+                <p className="text-gray-400 text-xs">유효일 / 만기일</p>
+                <p>{formatDate(p.eff_dt)} / {formatDate(p.mat_dt)}</p>
               </div>
               <div>
-                <p className="text-gray-400 text-xs">만기</p>
-                <p>{p.mat_prd}Y / {formatDate(p.mat_dt)}</p>
+                <p className="text-gray-400 text-xs">만기(년)</p>
+                <p>{p.mat_prd}Y</p>
               </div>
             </div>
-            {p.struct_cond && (
+            {(p.pay_cond || p.struct_cond) && (
               <div className="mt-2 pt-2 border-t">
-                <p className="text-xs text-gray-400">구조조건</p>
-                <p className="text-xs text-gray-700 line-clamp-2">{p.struct_cond}</p>
+                <p className="text-xs text-gray-400">Pay 구조</p>
+                <p className="text-xs text-gray-700 line-clamp-2">{p.pay_cond || p.struct_cond}</p>
+              </div>
+            )}
+            {(p.rcv_cond || p.struct_cond) && (
+              <div className="mt-1">
+                <p className="text-xs text-gray-400">Rcv 구조</p>
+                <p className="text-xs text-gray-700 line-clamp-2">{p.rcv_cond || p.struct_cond}</p>
               </div>
             )}
           </div>
@@ -102,12 +108,12 @@ export default async function StrucprdpTable({
               <th className="px-3 py-3 whitespace-nowrap">통화</th>
               <th className="px-3 py-3 whitespace-nowrap text-right">명목금액</th>
               <th className="px-3 py-3 whitespace-nowrap">만기(년)</th>
-              <th className="px-3 py-3 whitespace-nowrap">거래일</th>
               <th className="px-3 py-3 whitespace-nowrap">유효일</th>
               <th className="px-3 py-3 whitespace-nowrap">만기일</th>
               <th className="px-3 py-3 whitespace-nowrap">구조 유형</th>
               <th className="px-3 py-3 whitespace-nowrap">Call</th>
-              <th className="px-3 py-3">구조조건</th>
+              <th className="px-3 py-3">Pay 구조</th>
+              <th className="px-3 py-3">Rcv 구조</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
@@ -135,9 +141,6 @@ export default async function StrucprdpTable({
                   {p.mat_prd}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-gray-500">
-                  {formatDate(p.trd_dt)}
-                </td>
-                <td className="px-3 py-3 whitespace-nowrap text-gray-500">
                   {formatDate(p.eff_dt)}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-gray-500">
@@ -154,7 +157,10 @@ export default async function StrucprdpTable({
                   )}
                 </td>
                 <td className="px-3 py-3 max-w-[300px]">
-                  <StructCondTooltip condition={p.struct_cond} />
+                  <StructCondTooltip condition={p.pay_cond || p.struct_cond} />
+                </td>
+                <td className="px-3 py-3 max-w-[300px]">
+                  <StructCondTooltip condition={p.rcv_cond || p.struct_cond} />
                 </td>
               </tr>
             ))}

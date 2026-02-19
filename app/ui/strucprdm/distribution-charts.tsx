@@ -58,72 +58,108 @@ function DistributionRow({
   );
 }
 
+// 통화별 분리 + 각 통화 내에서 상대 비교하는 섹션
+function CurrencySplitSection({
+  title,
+  items,
+  labelKey,
+}: {
+  title: string;
+  items: { label: string; curr: string; notional: number }[];
+  labelKey: string;
+}) {
+  // KRW/USD 분리
+  const krwItems = items.filter((d) => d.curr === 'KRW').sort((a, b) => b.notional - a.notional);
+  const usdItems = items.filter((d) => d.curr === 'USD').sort((a, b) => b.notional - a.notional);
+
+  // 각 통화 내 최대값 기준
+  const krwMax = Math.max(...krwItems.map((d) => d.notional), 1);
+  const usdMax = Math.max(...usdItems.map((d) => d.notional), 1);
+
+  return (
+    <div className="rounded-xl bg-white p-5 shadow-sm">
+      <h3 className="mb-4 text-base font-semibold text-gray-800">
+        {title}
+      </h3>
+
+      {/* KRW 섹션 */}
+      {krwItems.length > 0 && (
+        <div className="mb-4">
+          <p className="mb-2 text-xs font-medium text-emerald-600 flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+            KRW (자산 · Alive)
+          </p>
+          <div className="space-y-1.5">
+            {krwItems.map((item, idx) => (
+              <DistributionRow
+                key={`krw-${labelKey}-${item.label}-${idx}`}
+                label={item.label}
+                curr="KRW"
+                notional={item.notional}
+                maxValue={krwMax}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* USD 섹션 */}
+      {usdItems.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-medium text-violet-600 flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full bg-violet-500" />
+            USD (자산 · Alive)
+          </p>
+          <div className="space-y-1.5">
+            {usdItems.map((item, idx) => (
+              <DistributionRow
+                key={`usd-${labelKey}-${item.label}-${idx}`}
+                label={item.label}
+                curr="USD"
+                notional={item.notional}
+                maxValue={usdMax}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {krwItems.length === 0 && usdItems.length === 0 && (
+        <p className="text-sm text-gray-400">데이터 없음</p>
+      )}
+    </div>
+  );
+}
+
 export default function DistributionCharts({
   summary,
 }: {
   summary: StrucprdpSummary;
 }) {
-  // 최대값 계산 (바 비율용)
-  const typeMax = Math.max(
-    ...summary.typeDistribution.map((d) => d.notional),
-    1,
-  );
-  const cntrMax = Math.max(
-    ...summary.cntrDistribution.map((d) => d.notional),
-    1,
-  );
+  // 차트 데이터 변환
+  const typeItems = summary.typeDistribution.map((d) => ({
+    label: d.struct_type,
+    curr: d.curr,
+    notional: d.notional,
+  }));
+  const cntrItems = summary.cntrDistribution.map((d) => ({
+    label: d.cntr_nm,
+    curr: d.curr,
+    notional: d.notional,
+  }));
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-      {/* 구조 유형별 분포 */}
-      <div className="rounded-xl bg-white p-5 shadow-sm">
-        <h3 className="mb-2 text-base font-semibold text-gray-800">
-          구조 유형별 분포 (자산 · Alive)
-        </h3>
-        <p className="mb-4 text-xs text-gray-400">
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />KRW
-          <span className="inline-block w-2 h-2 rounded-full bg-violet-500 ml-3 mr-1" />USD
-        </p>
-        <div className="space-y-1.5">
-          {summary.typeDistribution.map((item, idx) => (
-            <DistributionRow
-              key={`${item.struct_type}-${item.curr}-${idx}`}
-              label={item.struct_type}
-              curr={item.curr}
-              notional={item.notional}
-              maxValue={typeMax}
-            />
-          ))}
-          {summary.typeDistribution.length === 0 && (
-            <p className="text-sm text-gray-400">데이터 없음</p>
-          )}
-        </div>
-      </div>
-
-      {/* 거래상대방별 분포 */}
-      <div className="rounded-xl bg-white p-5 shadow-sm">
-        <h3 className="mb-2 text-base font-semibold text-gray-800">
-          거래상대방별 분포 (자산 · Alive)
-        </h3>
-        <p className="mb-4 text-xs text-gray-400">
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />KRW
-          <span className="inline-block w-2 h-2 rounded-full bg-violet-500 ml-3 mr-1" />USD
-        </p>
-        <div className="space-y-1.5">
-          {summary.cntrDistribution.map((item, idx) => (
-            <DistributionRow
-              key={`${item.cntr_nm}-${item.curr}-${idx}`}
-              label={item.cntr_nm}
-              curr={item.curr}
-              notional={item.notional}
-              maxValue={cntrMax}
-            />
-          ))}
-          {summary.cntrDistribution.length === 0 && (
-            <p className="text-sm text-gray-400">데이터 없음</p>
-          )}
-        </div>
-      </div>
+      <CurrencySplitSection
+        title="구조 유형별 분포"
+        items={typeItems}
+        labelKey="type"
+      />
+      <CurrencySplitSection
+        title="거래상대방별 분포"
+        items={cntrItems}
+        labelKey="cntr"
+      />
     </div>
   );
 }
