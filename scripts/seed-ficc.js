@@ -292,11 +292,12 @@ async function seedFundPnl(dataDir) {
   console.log(`Seeded ${count} rows into fund_pnl`);
 }
 
-async function seedStrucprdm(dataDir) {
+async function seedStrucprdp(dataDir, truncateFirst = false) {
   const client = await db.connect();
   await client.sql`
-    CREATE TABLE IF NOT EXISTS strucprdm (
+    CREATE TABLE IF NOT EXISTS strucprdp (
       id SERIAL PRIMARY KEY,
+      no INT,
       obj_cd VARCHAR(50) NOT NULL UNIQUE,
       fnd_cd VARCHAR(50),
       fnd_nm VARCHAR(200),
@@ -327,23 +328,30 @@ async function seedStrucprdm(dataDir) {
       type4 VARCHAR(100),
       optn_freq VARCHAR(50),
       call_notice VARCHAR(100),
+      frst_call_dt VARCHAR(50),
       add_optn TEXT,
       upfrnt VARCHAR(100),
       created_at TIMESTAMP,
       updated_at TIMESTAMP
     );
   `;
+  // 기존 데이터 삭제 후 재적재 옵션
+  if (truncateFirst) {
+    await client.sql`TRUNCATE TABLE strucprdp RESTART IDENTITY`;
+    console.log('Truncated "strucprdp" table (기존 데이터 삭제)');
+  }
   await client.end();
-  console.log('Created "strucprdm" table');
+  console.log('Created "strucprdp" table');
 
-  const filePath = findFile(dataDir, 'strucprdm_');
+  const filePath = findFile(dataDir, 'strucprdp');
   const rows = parseMultilineTsv(filePath);
-  console.log(`Parsed ${rows.length} rows from strucprdm`);
+  console.log(`Parsed ${rows.length} rows from strucprdp`);
 
   const validRows = rows.filter((r) => r.OBJ_CD && r.OBJ_CD !== '');
   console.log(`Valid rows: ${validRows.length} (skipped ${rows.length - validRows.length})`);
 
   const dataRows = validRows.map((r) => [
+    toNum(r.NO) || null,
     r.OBJ_CD,
     r.FND_CD || null,
     r.FND_NM || null,
@@ -374,6 +382,7 @@ async function seedStrucprdm(dataDir) {
     r.TYPE4 || null,
     r.OPTN_FREQ || null,
     r.CALL_NOTICE || null,
+    r.FRST_CALL_DT || null,
     r.ADD_OPTN || null,
     r.UPFRNT || null,
     r.CREATED_AT || null,
@@ -381,32 +390,43 @@ async function seedStrucprdm(dataDir) {
   ]);
 
   const count = await bulkInsertWithReconnect(
-    'strucprdm',
+    'strucprdp',
     [
-      'obj_cd', 'fnd_cd', 'fnd_nm', 'cntr_nm', 'asst_lblt', 'tp',
+      'no', 'obj_cd', 'fnd_cd', 'fnd_nm', 'cntr_nm', 'asst_lblt', 'tp',
       'trd_dt', 'eff_dt', 'mat_dt', 'curr', 'notn', 'mat_prd',
       'call_yn', 'risk_call_yn', 'struct_cond', 'pay_cond', 'pay_freq', 'pay_dcf',
       'rcv_cond', 'rcv_freq', 'rcv_dcf', 'note', 'call_dt', 'trmntn_dt',
       'type1', 'type2', 'type3', 'type4', 'optn_freq', 'call_notice',
-      'add_optn', 'upfrnt', 'created_at', 'updated_at',
+      'frst_call_dt', 'add_optn', 'upfrnt', 'created_at', 'updated_at',
     ],
     dataRows,
     ['obj_cd'],
     [
-      'fnd_cd', 'fnd_nm', 'cntr_nm', 'asst_lblt', 'tp',
+      'no', 'fnd_cd', 'fnd_nm', 'cntr_nm', 'asst_lblt', 'tp',
       'trd_dt', 'eff_dt', 'mat_dt', 'curr', 'notn', 'mat_prd',
       'call_yn', 'risk_call_yn', 'struct_cond', 'pay_cond', 'pay_freq', 'pay_dcf',
       'rcv_cond', 'rcv_freq', 'rcv_dcf', 'note', 'call_dt', 'trmntn_dt',
       'type1', 'type2', 'type3', 'type4', 'optn_freq', 'call_notice',
-      'add_optn', 'upfrnt', 'created_at', 'updated_at',
+      'frst_call_dt', 'add_optn', 'upfrnt', 'created_at', 'updated_at',
     ],
-    20,    // batchSize (34컬럼 x 20행 = 680 파라미터)
+    20,    // batchSize (36컬럼 x 20행 = 720 파라미터)
     200,   // reconnectEvery
   );
-  console.log(`Seeded ${count} rows into strucprdm`);
+  console.log(`Seeded ${count} rows into strucprdp`);
 }
 
 // --- 메인 ---
+
+// 파일 존재 여부를 확인하는 안전한 파일 찾기 함수
+function findFileOptional(dir, prefix) {
+  try {
+    const files = fs.readdirSync(dir);
+    const match = files.find((f) => f.startsWith(prefix) && f.endsWith('.txt'));
+    return match ? path.join(dir, match) : null;
+  } catch {
+    return null;
+  }
+}
 
 async function main() {
   const dataDir = path.join(process.cwd(), 'DataBase');
@@ -415,15 +435,40 @@ async function main() {
   console.log(`Data directory: ${dataDir}`);
   console.log('');
 
-  await seedDisplayOrdering(dataDir);
-  console.log('');
-  await seedBookPnl(dataDir);
-  console.log('');
-  await seedAssetPosition(dataDir);
-  console.log('');
-  await seedFundPnl(dataDir);
-  console.log('');
-  await seedStrucprdm(dataDir);
+  // 각 시드 함수를 데이터 파일 존재 여부에 따라 선택적으로 실행
+  if (findFileOptional(dataDir, '_ordering_')) {
+    await seedDisplayOrdering(dataDir);
+    console.log('');
+  } else {
+    console.log('Skipped "display_ordering" (no _ordering_*.txt file found)');
+  }
+
+  if (findFileOptional(dataDir, 'bookpnlp_')) {
+    await seedBookPnl(dataDir);
+    console.log('');
+  } else {
+    console.log('Skipped "book_pnl" (no bookpnlp_*.txt file found)');
+  }
+
+  if (findFileOptional(dataDir, 'asstpstnp_')) {
+    await seedAssetPosition(dataDir);
+    console.log('');
+  } else {
+    console.log('Skipped "asset_position" (no asstpstnp_*.txt file found)');
+  }
+
+  if (findFileOptional(dataDir, 'fndpnlp_')) {
+    await seedFundPnl(dataDir);
+    console.log('');
+  } else {
+    console.log('Skipped "fund_pnl" (no fndpnlp_*.txt file found)');
+  }
+
+  if (findFileOptional(dataDir, 'strucprdp')) {
+    await seedStrucprdp(dataDir);
+  } else {
+    console.log('Skipped "strucprdp" (no strucprdp*.txt file found)');
+  }
 
   console.log('');
   console.log('=== FICC Data Seeding Complete ===');

@@ -129,10 +129,11 @@ export type PnlAttributionRow = {
   daily_pnl: number;
 };
 
-// --- 구조화 상품 타입 ---
+// --- 구조화 상품 타입 (strucprdp) ---
 
-export type Strucprdm = {
+export type Strucprdp = {
   id: number;
+  no: number;
   obj_cd: string;
   fnd_cd: string;
   fnd_nm: string;
@@ -163,22 +164,31 @@ export type Strucprdm = {
   type4: string;
   optn_freq: string;
   call_notice: string;
+  frst_call_dt: string;
   add_optn: string;
   upfrnt: string;
   created_at: string;
   updated_at: string;
 };
 
-export type StrucprdmSummary = {
+export type StrucprdpSummary = {
   totalCount: number;
   krwCount: number;
   usdCount: number;
-  assetCount: number;
-  liabilityCount: number;
-  krwNotionalTotal: number;
-  usdNotionalTotal: number;
-  typeDistribution: { struct_type: string; count: number }[];
-  cntrDistribution: { cntr_nm: string; count: number }[];
+  krwAssetCount: number;
+  usdAssetCount: number;
+  krwAssetNotional: number;
+  usdAssetNotional: number;
+  typeDistribution: {
+    struct_type: string;
+    curr: string;
+    notional: number;
+  }[];
+  cntrDistribution: {
+    cntr_nm: string;
+    curr: string;
+    notional: number;
+  }[];
 };
 
 export type BTBDashboardData = {

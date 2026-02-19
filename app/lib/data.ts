@@ -9,8 +9,8 @@ import {
   Revenue,
   BTBDashboardData,
   PnlAttributionRow,
-  Strucprdm,
-  StrucprdmSummary,
+  Strucprdp,
+  StrucprdpSummary,
 } from './definitions';
 import { formatCurrency } from './utils';
 import { unstable_noStore as noStore} from "next/cache";
@@ -390,52 +390,55 @@ export async function fetchBTBDashboardData(): Promise<BTBDashboardData | null> 
   }
 }
 
-// --- 구조화 상품 (strucprdm) 데이터 조회 함수 ---
+// --- 구조화 상품 (strucprdp) 데이터 조회 함수 ---
 
-const STRUCPRDM_PER_PAGE = 15;
+const STRUCPRDP_PER_PAGE = 15;
 
-export async function fetchStrucprdmSummary(): Promise<StrucprdmSummary | null> {
+export async function fetchStrucprdpSummary(): Promise<StrucprdpSummary | null> {
   noStore();
 
   try {
-    const [countData, notionalData, typeData, cntrData] = await Promise.all([
+    // Alive(call_yn='N') + 자산(asst_lblt='자산') 기준으로만 집계
+    const [countData, typeData, cntrData] = await Promise.all([
+      // 자산 + Alive 기준 KRW/USD 건수·명목금액
       sql`
         SELECT
           COUNT(*) AS total,
           COUNT(*) FILTER (WHERE curr = 'KRW') AS krw_count,
           COUNT(*) FILTER (WHERE curr = 'USD') AS usd_count,
-          COUNT(*) FILTER (WHERE asst_lblt = '자산') AS asset_count,
-          COUNT(*) FILTER (WHERE asst_lblt = '부채') AS liability_count
-        FROM strucprdm
+          COALESCE(SUM(notn) FILTER (WHERE curr = 'KRW'), 0) AS krw_asset_notional,
+          COALESCE(SUM(notn) FILTER (WHERE curr = 'USD'), 0) AS usd_asset_notional
+        FROM strucprdp
+        WHERE asst_lblt = '자산'
+          AND (call_yn = 'N' OR call_yn IS NULL)
       `,
+      // 구조 유형별 자산 명목금액 (Alive + 자산, type1/type2/type3 조합 + 통화별)
       sql`
         SELECT
-          COALESCE(SUM(notn) FILTER (WHERE curr = 'KRW'), 0) AS krw_total,
-          COALESCE(SUM(notn) FILTER (WHERE curr = 'USD'), 0) AS usd_total
-        FROM strucprdm
-      `,
-      sql`
-        SELECT
-          CONCAT_WS(' / ',
-            NULLIF(type1, ''),
-            NULLIF(type2, ''),
-            NULLIF(type3, ''),
-            NULLIF(type4, '')
-          ) AS struct_type,
-          COUNT(*) AS count
-        FROM strucprdm
+          CONCAT_WS(' / ', NULLIF(type1,''), NULLIF(type2,''), NULLIF(type3,'')) AS struct_type,
+          curr,
+          COALESCE(SUM(notn), 0) AS notional
+        FROM strucprdp
         WHERE type1 IS NOT NULL AND type1 != ''
-        GROUP BY struct_type
-        ORDER BY count DESC
-        LIMIT 10
+          AND asst_lblt = '자산'
+          AND (call_yn = 'N' OR call_yn IS NULL)
+        GROUP BY CONCAT_WS(' / ', NULLIF(type1,''), NULLIF(type2,''), NULLIF(type3,'')), curr
+        ORDER BY COALESCE(SUM(notn), 0) DESC
+        LIMIT 20
       `,
+      // 거래상대방별 자산 명목금액 (Alive + 자산, 통화별)
       sql`
-        SELECT cntr_nm, COUNT(*) AS count
-        FROM strucprdm
+        SELECT
+          cntr_nm,
+          curr,
+          COALESCE(SUM(notn), 0) AS notional
+        FROM strucprdp
         WHERE cntr_nm IS NOT NULL AND cntr_nm != ''
-        GROUP BY cntr_nm
-        ORDER BY count DESC
-        LIMIT 10
+          AND asst_lblt = '자산'
+          AND (call_yn = 'N' OR call_yn IS NULL)
+        GROUP BY cntr_nm, curr
+        ORDER BY COALESCE(SUM(notn), 0) DESC
+        LIMIT 20
       `,
     ]);
 
@@ -443,17 +446,19 @@ export async function fetchStrucprdmSummary(): Promise<StrucprdmSummary | null> 
       totalCount: Number(countData.rows[0].total),
       krwCount: Number(countData.rows[0].krw_count),
       usdCount: Number(countData.rows[0].usd_count),
-      assetCount: Number(countData.rows[0].asset_count),
-      liabilityCount: Number(countData.rows[0].liability_count),
-      krwNotionalTotal: Number(notionalData.rows[0].krw_total),
-      usdNotionalTotal: Number(notionalData.rows[0].usd_total),
+      krwAssetCount: Number(countData.rows[0].krw_count),
+      usdAssetCount: Number(countData.rows[0].usd_count),
+      krwAssetNotional: Number(countData.rows[0].krw_asset_notional),
+      usdAssetNotional: Number(countData.rows[0].usd_asset_notional),
       typeDistribution: typeData.rows.map((r) => ({
         struct_type: r.struct_type,
-        count: Number(r.count),
+        curr: r.curr || 'KRW',
+        notional: Number(r.notional),
       })),
       cntrDistribution: cntrData.rows.map((r) => ({
         cntr_nm: r.cntr_nm,
-        count: Number(r.count),
+        curr: r.curr || 'KRW',
+        notional: Number(r.notional),
       })),
     };
   } catch (error) {
@@ -462,20 +467,20 @@ export async function fetchStrucprdmSummary(): Promise<StrucprdmSummary | null> 
   }
 }
 
-export async function fetchFilteredStrucprdm(
+export async function fetchFilteredStrucprdp(
   query: string,
   currentPage: number,
   callFilter: string = 'N',
-): Promise<Strucprdm[]> {
+): Promise<Strucprdp[]> {
   noStore();
 
-  const offset = (currentPage - 1) * STRUCPRDM_PER_PAGE;
+  const offset = (currentPage - 1) * STRUCPRDP_PER_PAGE;
 
   try {
     // callFilter: 'Y' = 콜된 종목만, 'N' = 미콜 종목만(기본), 'ALL' = 전체
-    const data = await sql<Strucprdm>`
+    const data = await sql<Strucprdp>`
       SELECT *
-      FROM strucprdm
+      FROM strucprdp
       WHERE
         (
           obj_cd ILIKE ${`%${query}%`} OR
@@ -495,18 +500,18 @@ export async function fetchFilteredStrucprdm(
           OR call_yn = ${callFilter}
           OR (${callFilter} = 'N' AND call_yn IS NULL)
         )
-      ORDER BY id ASC
-      LIMIT ${STRUCPRDM_PER_PAGE} OFFSET ${offset}
+      ORDER BY no ASC
+      LIMIT ${STRUCPRDP_PER_PAGE} OFFSET ${offset}
     `;
 
     return data.rows;
   } catch (error) {
     console.error('Database Error:', error);
-    throw new Error('Failed to fetch strucprdm data.');
+    throw new Error('Failed to fetch strucprdp data.');
   }
 }
 
-export async function fetchStrucprdmPages(
+export async function fetchStrucprdpPages(
   query: string,
   callFilter: string = 'N',
 ): Promise<number> {
@@ -515,7 +520,7 @@ export async function fetchStrucprdmPages(
   try {
     const count = await sql`
       SELECT COUNT(*)
-      FROM strucprdm
+      FROM strucprdp
       WHERE
         (
           obj_cd ILIKE ${`%${query}%`} OR
@@ -537,19 +542,19 @@ export async function fetchStrucprdmPages(
         )
     `;
 
-    return Math.ceil(Number(count.rows[0].count) / STRUCPRDM_PER_PAGE);
+    return Math.ceil(Number(count.rows[0].count) / STRUCPRDP_PER_PAGE);
   } catch (error) {
     console.error('Database Error:', error);
-    throw new Error('Failed to fetch strucprdm page count.');
+    throw new Error('Failed to fetch strucprdp page count.');
   }
 }
 
-export async function fetchStrucprdmById(objCd: string): Promise<Strucprdm | null> {
+export async function fetchStrucprdpById(objCd: string): Promise<Strucprdp | null> {
   noStore();
 
   try {
-    const data = await sql<Strucprdm>`
-      SELECT * FROM strucprdm WHERE obj_cd = ${objCd}
+    const data = await sql<Strucprdp>`
+      SELECT * FROM strucprdp WHERE obj_cd = ${objCd}
     `;
     return data.rows[0] || null;
   } catch (error) {

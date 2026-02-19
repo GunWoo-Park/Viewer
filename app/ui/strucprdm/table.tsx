@@ -1,5 +1,5 @@
-import { Strucprdm } from '@/app/lib/definitions';
-import { fetchFilteredStrucprdm } from '@/app/lib/data';
+import { Strucprdp } from '@/app/lib/definitions';
+import { fetchFilteredStrucprdp } from '@/app/lib/data';
 import StructCondTooltip from './struct-cond-tooltip';
 
 // 날짜 포맷: YYYYMMDD → YYYY-MM-DD
@@ -25,13 +25,13 @@ function formatNotional(notn: number, curr: string): string {
 }
 
 // type1~type4를 통합하여 구조 유형 문자열 생성
-function buildStructType(p: Strucprdm): string {
+function buildStructType(p: Strucprdp): string {
   return [p.type1, p.type2, p.type3, p.type4]
     .filter((v) => v && v !== '')
     .join(' / ');
 }
 
-export default async function StrucprdmTable({
+export default async function StrucprdpTable({
   query,
   currentPage,
   callFilter = 'N',
@@ -40,7 +40,7 @@ export default async function StrucprdmTable({
   currentPage: number;
   callFilter?: string;
 }) {
-  const products = await fetchFilteredStrucprdm(query, currentPage, callFilter);
+  const products = await fetchFilteredStrucprdp(query, currentPage, callFilter);
 
   return (
     <div className="mt-6 flow-root">

@@ -1,10 +1,9 @@
 import {
   BanknotesIcon,
   CurrencyDollarIcon,
-  ScaleIcon,
   ChartBarIcon,
 } from '@heroicons/react/24/outline';
-import { StrucprdmSummary } from '@/app/lib/definitions';
+import { StrucprdpSummary } from '@/app/lib/definitions';
 
 // 숫자 포맷 유틸리티
 function formatKRW(amount: number): string {
@@ -51,37 +50,30 @@ function SummaryCard({
 export default function SummaryCards({
   summary,
 }: {
-  summary: StrucprdmSummary;
+  summary: StrucprdpSummary;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <SummaryCard
         title="전체 상품 수"
         value={`${summary.totalCount}건`}
-        subValue={`자산 ${summary.assetCount} / 부채 ${summary.liabilityCount}`}
+        subValue={`KRW ${summary.krwCount} / USD ${summary.usdCount}`}
         icon={ChartBarIcon}
         color="bg-blue-500"
       />
       <SummaryCard
-        title="KRW 상품"
-        value={`${summary.krwCount}건`}
-        subValue={`총 명목금액 ${formatKRW(summary.krwNotionalTotal)}`}
+        title="KRW 상품 (자산)"
+        value={formatKRW(summary.krwAssetNotional)}
+        subValue={`${summary.krwAssetCount}건`}
         icon={BanknotesIcon}
         color="bg-emerald-500"
       />
       <SummaryCard
-        title="USD 상품"
-        value={`${summary.usdCount}건`}
-        subValue={`총 명목금액 ${formatUSD(summary.usdNotionalTotal)}`}
+        title="USD 상품 (자산)"
+        value={formatUSD(summary.usdAssetNotional)}
+        subValue={`${summary.usdAssetCount}건`}
         icon={CurrencyDollarIcon}
         color="bg-violet-500"
-      />
-      <SummaryCard
-        title="자산/부채 비율"
-        value={`${summary.totalCount > 0 ? Math.round((summary.assetCount / summary.totalCount) * 100) : 0}%`}
-        subValue={`자산 ${summary.assetCount}건 기준`}
-        icon={ScaleIcon}
-        color="bg-amber-500"
       />
     </div>
   );

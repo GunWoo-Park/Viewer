@@ -11,7 +11,7 @@ import {
   DistributionChartsSkeleton,
   TableSkeleton,
 } from '@/app/ui/strucprdm/skeletons';
-import { fetchStrucprdmSummary, fetchStrucprdmPages } from '@/app/lib/data';
+import { fetchStrucprdpSummary, fetchStrucprdpPages } from '@/app/lib/data';
 
 export const metadata: Metadata = {
   title: '구조화 상품',
@@ -74,7 +74,7 @@ export default async function StrucprdmPage({
 
 // 요약 카드 서버 컴포넌트 래퍼
 async function SummaryCardsWrapper() {
-  const summary = await fetchStrucprdmSummary();
+  const summary = await fetchStrucprdpSummary();
   if (!summary) {
     return (
       <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-4">
@@ -89,7 +89,7 @@ async function SummaryCardsWrapper() {
 
 // 분포 차트 서버 컴포넌트 래퍼
 async function DistributionChartsWrapper() {
-  const summary = await fetchStrucprdmSummary();
+  const summary = await fetchStrucprdpSummary();
   if (!summary) return null;
   return <DistributionCharts summary={summary} />;
 }
@@ -102,6 +102,6 @@ async function PaginationWrapper({
   query: string;
   callFilter: string;
 }) {
-  const totalPages = await fetchStrucprdmPages(query, callFilter);
+  const totalPages = await fetchStrucprdpPages(query, callFilter);
   return <Pagination totalPages={totalPages} />;
 }
