@@ -60,10 +60,11 @@ function formatUpfrnt(upfrnt: string): { text: string; color: string } {
   return { text: val, color: 'text-gray-600' };
 }
 
-// type1~type4를 통합하여 구조 유형 문자열 생성
+// type1~type4를 통합하여 구조 유형 문자열 생성 (백슬래시 → ₩ 치환)
 function buildStructType(p: Strucprdp): string {
   return [p.type1, p.type2, p.type3, p.type4]
     .filter((v) => v && v !== '')
+    .map((v) => v.replace(/\\/g, '₩'))
     .join(' / ');
 }
 
@@ -292,6 +293,9 @@ function StructTypeBadges({
   type3: string;
   type4: string;
 }) {
+  // 백슬래시(\)를 ₩로 치환 (예: \Zero → ₩Zero)
+  const fix = (s: string) => s.replace(/\\/g, '₩');
+
   if (!type1) return <span className="text-gray-300">-</span>;
 
   const type1ColorMap: Record<string, string> = {
@@ -304,12 +308,12 @@ function StructTypeBadges({
   };
 
   const mainColor = type1ColorMap[type1] || 'bg-gray-100 text-gray-800';
-  const subParts = [type2, type3, type4].filter((v) => v && v !== '');
+  const subParts = [type2, type3, type4].filter((v) => v && v !== '').map(fix);
 
   return (
     <div className="flex flex-wrap gap-1">
       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${mainColor}`}>
-        {type1}
+        {fix(type1)}
       </span>
       {subParts.map((sub, i) => (
         <span
