@@ -24,6 +24,42 @@ function formatNotional(notn: number, curr: string): string {
   return notn.toLocaleString();
 }
 
+// 수수료(UPFRNT) 포맷: bp 단위는 그대로, 금액은 원화 기준 포맷
+function formatUpfrnt(upfrnt: string): { text: string; color: string } {
+  if (!upfrnt || upfrnt.trim() === '') return { text: '-', color: 'text-gray-300' };
+
+  const val = upfrnt.trim();
+
+  // bp 단위 (예: +100bp, +70bp)
+  if (val.toLowerCase().endsWith('bp')) {
+    return { text: val, color: 'text-indigo-600' };
+  }
+
+  // 금액 단위 (숫자) — 수수료는 모두 원화 기준
+  const num = Number(val);
+  if (!isNaN(num)) {
+    const isNegative = num < 0;
+    const abs = Math.abs(num);
+    let formatted: string;
+
+    if (abs >= 100000000) {
+      formatted = `${(abs / 100000000).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
+    } else if (abs >= 10000) {
+      formatted = `${(abs / 10000).toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+    } else {
+      formatted = abs.toLocaleString('ko-KR');
+    }
+    formatted = `₩${formatted}`;
+
+    const sign = isNegative ? '−' : '+';
+    const color = isNegative ? 'text-rose-600' : 'text-emerald-600';
+    return { text: `${sign}${formatted}`, color };
+  }
+
+  // 기타: 그대로 표시
+  return { text: val, color: 'text-gray-600' };
+}
+
 // type1~type4를 통합하여 구조 유형 문자열 생성
 function buildStructType(p: Strucprdp): string {
   return [p.type1, p.type2, p.type3, p.type4]
@@ -73,7 +109,12 @@ export default async function StrucprdpTable({
               </div>
               <div>
                 <p className="text-gray-400 text-xs">수수료</p>
-                <p className="font-medium text-xs">{p.upfrnt || '-'}</p>
+                <p className="font-medium text-xs">
+                  {(() => {
+                    const { text, color } = formatUpfrnt(p.upfrnt);
+                    return <span className={color}>{text}</span>;
+                  })()}
+                </p>
               </div>
               <div>
                 <p className="text-gray-400 text-xs">유효일 / 만기일</p>
@@ -142,8 +183,11 @@ export default async function StrucprdpTable({
                 <td className="px-3 py-3 whitespace-nowrap text-right font-medium">
                   {formatNotional(p.notn, p.curr)}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">
-                  {p.upfrnt || '-'}
+                <td className="px-3 py-3 whitespace-nowrap text-xs font-medium">
+                  {(() => {
+                    const { text, color } = formatUpfrnt(p.upfrnt);
+                    return <span className={color}>{text}</span>;
+                  })()}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-center">
                   {p.mat_prd}
