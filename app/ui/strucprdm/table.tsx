@@ -72,6 +72,10 @@ export default async function StrucprdpTable({
                 <p className="font-medium">{formatNotional(p.notn, p.curr)}</p>
               </div>
               <div>
+                <p className="text-gray-400 text-xs">수수료</p>
+                <p className="font-medium text-xs">{p.upfrnt || '-'}</p>
+              </div>
+              <div>
                 <p className="text-gray-400 text-xs">유효일 / 만기일</p>
                 <p>{formatDate(p.eff_dt)} / {formatDate(p.mat_dt)}</p>
               </div>
@@ -107,6 +111,7 @@ export default async function StrucprdpTable({
               <th className="px-3 py-3 whitespace-nowrap">TP</th>
               <th className="px-3 py-3 whitespace-nowrap">통화</th>
               <th className="px-3 py-3 whitespace-nowrap text-right">명목금액</th>
+              <th className="px-3 py-3 whitespace-nowrap">수수료</th>
               <th className="px-3 py-3 whitespace-nowrap">만기(년)</th>
               <th className="px-3 py-3 whitespace-nowrap">유효일</th>
               <th className="px-3 py-3 whitespace-nowrap">만기일</th>
@@ -136,6 +141,9 @@ export default async function StrucprdpTable({
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-right font-medium">
                   {formatNotional(p.notn, p.curr)}
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">
+                  {p.upfrnt || '-'}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-center">
                   {p.mat_prd}
