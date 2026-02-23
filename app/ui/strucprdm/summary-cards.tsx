@@ -32,16 +32,16 @@ function SummaryCard({
   color: string;
 }) {
   return (
-    <div className="rounded-xl bg-white p-4 shadow-sm">
+    <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm">
       <div className="flex items-center gap-2">
         <div className={`rounded-lg p-2 ${color}`}>
           <Icon className="w-5 h-5 text-white" />
         </div>
-        <p className="text-sm text-gray-500">{title}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
       </div>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
+      <p className="mt-2 text-2xl font-semibold dark:text-gray-100">{value}</p>
       {subValue && (
-        <p className="mt-1 text-xs text-gray-400">{subValue}</p>
+        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{subValue}</p>
       )}
     </div>
   );

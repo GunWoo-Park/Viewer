@@ -86,12 +86,12 @@ export default async function StrucprdpTable({
         {products.map((p) => (
           <div
             key={p.obj_cd}
-            className="mb-3 rounded-lg bg-white p-4 shadow-sm"
+            className="mb-3 rounded-lg bg-white dark:bg-gray-800 p-4 shadow-sm"
           >
-            <div className="flex items-center justify-between border-b pb-3">
+            <div className="flex items-center justify-between border-b dark:border-gray-700 pb-3">
               <div>
-                <p className="text-sm font-semibold text-gray-900">{p.obj_cd}</p>
-                <p className="text-xs text-gray-500">{p.cntr_nm}</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{p.obj_cd}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{p.cntr_nm}</p>
               </div>
               <div className="flex gap-1">
                 <AssetBadge value={p.asst_lblt} />
@@ -101,15 +101,15 @@ export default async function StrucprdpTable({
             </div>
             <div className="grid grid-cols-2 gap-2 pt-3 text-sm">
               <div>
-                <p className="text-gray-400 text-xs">구조 유형</p>
+                <p className="text-gray-400 dark:text-gray-500 text-xs">구조 유형</p>
                 <p className="font-medium text-xs">{buildStructType(p) || '-'}</p>
               </div>
               <div>
-                <p className="text-gray-400 text-xs">명목금액</p>
+                <p className="text-gray-400 dark:text-gray-500 text-xs">명목금액</p>
                 <p className="font-medium">{formatNotional(p.notn, p.curr)}</p>
               </div>
               <div>
-                <p className="text-gray-400 text-xs">수수료</p>
+                <p className="text-gray-400 dark:text-gray-500 text-xs">수수료</p>
                 <p className="font-medium text-xs">
                   {(() => {
                     const { text, color } = formatUpfrnt(p.upfrnt);
@@ -118,24 +118,24 @@ export default async function StrucprdpTable({
                 </p>
               </div>
               <div>
-                <p className="text-gray-400 text-xs">유효일 / 만기일</p>
+                <p className="text-gray-400 dark:text-gray-500 text-xs">유효일 / 만기일</p>
                 <p>{formatDate(p.eff_dt)} / {formatDate(p.mat_dt)}</p>
               </div>
               <div>
-                <p className="text-gray-400 text-xs">만기(년)</p>
+                <p className="text-gray-400 dark:text-gray-500 text-xs">만기(년)</p>
                 <p>{p.mat_prd}Y</p>
               </div>
             </div>
             {(p.pay_cond || p.struct_cond) && (
-              <div className="mt-2 pt-2 border-t">
-                <p className="text-xs text-gray-400">Pay 구조</p>
-                <p className="text-xs text-gray-700 line-clamp-2">{p.pay_cond || p.struct_cond}</p>
+              <div className="mt-2 pt-2 border-t dark:border-gray-700">
+                <p className="text-xs text-gray-400 dark:text-gray-500">Pay 구조</p>
+                <p className="text-xs text-gray-700 dark:text-gray-300 line-clamp-2">{p.pay_cond || p.struct_cond}</p>
               </div>
             )}
             {(p.rcv_cond || p.struct_cond) && (
               <div className="mt-1">
-                <p className="text-xs text-gray-400">Rcv 구조</p>
-                <p className="text-xs text-gray-700 line-clamp-2">{p.rcv_cond || p.struct_cond}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Rcv 구조</p>
+                <p className="text-xs text-gray-700 dark:text-gray-300 line-clamp-2">{p.rcv_cond || p.struct_cond}</p>
               </div>
             )}
           </div>
@@ -145,7 +145,7 @@ export default async function StrucprdpTable({
       {/* 데스크탑 테이블 뷰 */}
       <div className="hidden md:block overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <thead className="bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             <tr>
               <th className="px-3 py-3 whitespace-nowrap">OBJ_CD</th>
               <th className="px-3 py-3 whitespace-nowrap">거래상대방</th>
@@ -163,10 +163,10 @@ export default async function StrucprdpTable({
               <th className="px-3 py-3">Rcv 구조</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 bg-white">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-900">
             {products.map((p) => (
-              <tr key={p.obj_cd} className="hover:bg-gray-50 transition-colors">
-                <td className="px-3 py-3 whitespace-nowrap font-mono text-xs font-medium text-blue-700">
+              <tr key={p.obj_cd} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <td className="px-3 py-3 whitespace-nowrap font-mono text-xs font-medium text-blue-700 dark:text-blue-400">
                   {p.obj_cd}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap max-w-[180px] truncate" title={p.cntr_nm}>
@@ -193,10 +193,10 @@ export default async function StrucprdpTable({
                 <td className="px-3 py-3 whitespace-nowrap text-center">
                   {p.mat_prd}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-gray-500">
+                <td className="px-3 py-3 whitespace-nowrap text-gray-500 dark:text-gray-400">
                   {formatDate(p.eff_dt)}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-gray-500">
+                <td className="px-3 py-3 whitespace-nowrap text-gray-500 dark:text-gray-400">
                   {formatDate(p.mat_dt)}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap max-w-[220px]">
@@ -204,7 +204,7 @@ export default async function StrucprdpTable({
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-center">
                   {p.call_yn === 'Y' ? (
-                    <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs text-orange-700">Y</span>
+                    <span className="inline-flex items-center rounded-full bg-orange-100 dark:bg-orange-900/40 px-2 py-0.5 text-xs text-orange-700 dark:text-orange-400">Y</span>
                   ) : (
                     <span className="text-gray-300">-</span>
                   )}
@@ -223,7 +223,7 @@ export default async function StrucprdpTable({
 
       {products.length === 0 && (
         <div className="mt-10 text-center">
-          <p className="text-gray-400">검색 결과가 없습니다.</p>
+          <p className="text-gray-400 dark:text-gray-500">검색 결과가 없습니다.</p>
         </div>
       )}
     </div>
@@ -237,8 +237,8 @@ function AssetBadge({ value }: { value: string }) {
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
         isAsset
-          ? 'bg-blue-50 text-blue-700'
-          : 'bg-rose-50 text-rose-700'
+          ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+          : 'bg-rose-50 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
       }`}
     >
       {value}
@@ -248,16 +248,16 @@ function AssetBadge({ value }: { value: string }) {
 
 // TP 뱃지
 function TpBadge({ value }: { value: string }) {
-  if (!value) return <span className="text-gray-300">-</span>;
+  if (!value) return <span className="text-gray-300 dark:text-gray-600">-</span>;
 
   const colorMap: Record<string, string> = {
-    자산: 'bg-blue-50 text-blue-600',
-    MTM: 'bg-yellow-50 text-yellow-700',
-    자체발행: 'bg-fuchsia-50 text-fuchsia-700',
-    캐리: 'bg-cyan-50 text-cyan-700',
+    자산: 'bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300',
+    MTM: 'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+    자체발행: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300',
+    캐리: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
   };
 
-  const color = colorMap[value] || 'bg-gray-50 text-gray-600';
+  const color = colorMap[value] || 'bg-gray-50 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
 
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${color}`}>
@@ -272,8 +272,8 @@ function CurrBadge({ value }: { value: string }) {
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
         value === 'KRW'
-          ? 'bg-emerald-50 text-emerald-700'
-          : 'bg-violet-50 text-violet-700'
+          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+          : 'bg-violet-50 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
       }`}
     >
       {value}
@@ -296,18 +296,18 @@ function StructTypeBadges({
   // 백슬래시(\)를 ₩로 치환 (예: \Zero → ₩Zero)
   const fix = (s: string) => s.replace(/\\/g, '₩');
 
-  if (!type1) return <span className="text-gray-300">-</span>;
+  if (!type1) return <span className="text-gray-300 dark:text-gray-600">-</span>;
 
   const type1ColorMap: Record<string, string> = {
-    'Range Accrual': 'bg-sky-100 text-sky-800',
-    Spread: 'bg-amber-100 text-amber-800',
-    Floater: 'bg-teal-100 text-teal-800',
-    InvF: 'bg-indigo-100 text-indigo-800',
-    Power: 'bg-orange-100 text-orange-800',
-    'Zero Callable': 'bg-purple-100 text-purple-800',
+    'Range Accrual': 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
+    Spread: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+    Floater: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
+    InvF: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300',
+    Power: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+    'Zero Callable': 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
   };
 
-  const mainColor = type1ColorMap[type1] || 'bg-gray-100 text-gray-800';
+  const mainColor = type1ColorMap[type1] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
   const subParts = [type2, type3, type4].filter((v) => v && v !== '').map(fix);
 
   return (
@@ -318,7 +318,7 @@ function StructTypeBadges({
       {subParts.map((sub, i) => (
         <span
           key={i}
-          className="inline-flex items-center rounded-full bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600"
+          className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 text-xs text-gray-600 dark:text-gray-300"
         >
           {sub}
         </span>

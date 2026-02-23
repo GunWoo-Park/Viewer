@@ -26,20 +26,19 @@ export default async function CardWrapper() {
         const isUp = index.trend === 'up';
 
         return (
-          <div key={index.name} className="rounded-xl bg-gray-50 p-2 shadow-sm">
+          <div key={index.name} className="rounded-xl bg-gray-50 dark:bg-gray-800 p-2 shadow-sm">
             <div className="flex p-4 items-center justify-between">
               <div className="flex items-center">
-                <Icon className="h-5 w-5 text-gray-700" />
-                <h3 className="ml-2 text-sm font-medium">{index.name}</h3>
+                <Icon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                <h3 className="ml-2 text-sm font-medium dark:text-gray-200">{index.name}</h3>
               </div>
-              {/* 등락폭 표시 */}
-              <span className={`text-xs font-bold px-2 py-1 rounded-full ${isUp ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+              <span className={`text-xs font-bold px-2 py-1 rounded-full ${isUp ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400'}`}>
                 {index.change}
               </span>
             </div>
             <p
               className={`${lusitana.className}
-                truncate rounded-xl bg-white px-4 py-8 text-center text-2xl font-bold`}
+                truncate rounded-xl bg-white dark:bg-gray-900 px-4 py-8 text-center text-2xl font-bold dark:text-gray-100`}
             >
               {index.value}
             </p>

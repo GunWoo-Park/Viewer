@@ -43,7 +43,7 @@ export default function BTBDashboard({ data }: BTBDashboardProps) {
       </div>
 
       {/* 탭 네비게이션 */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="-mb-px flex space-x-8">
           {['pnl', 'risk', 'distribution'].map((tab) => (
             <button
@@ -51,8 +51,8 @@ export default function BTBDashboard({ data }: BTBDashboardProps) {
               onClick={() => setActiveTab(tab)}
               className={`border-b-2 px-1 py-4 text-sm font-medium ${
                 activeTab === tab
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  ? 'border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300'
               }`}
             >
               {tab === 'pnl'
@@ -66,7 +66,7 @@ export default function BTBDashboard({ data }: BTBDashboardProps) {
       </div>
 
       {/* 탭 콘텐츠 */}
-      <div className="min-h-[300px] rounded-xl border bg-white p-6 shadow-sm">
+      <div className="min-h-[300px] rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm">
         {activeTab === 'pnl' && (
           <PnLSection pnlAttribution={data.pnlAttribution} />
         )}
@@ -99,8 +99,8 @@ function KpiCard({
       : '';
 
   return (
-    <div className="rounded-xl border bg-gray-50 p-4 shadow-sm">
-      <p className="text-sm font-medium text-gray-500">{title}</p>
+    <div className="rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4 shadow-sm">
+      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
       <p
         className={`${lusitana.className} mt-1 text-2xl font-bold ${pnlColor}`}
       >
@@ -117,12 +117,12 @@ function PnLSection({
 }) {
   return (
     <div>
-      <h3 className="mb-4 font-semibold text-gray-700">
+      <h3 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
         PnL Attribution Breakdown
       </h3>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-gray-50 font-medium uppercase text-gray-500">
+          <thead className="bg-gray-50 dark:bg-gray-800 font-medium uppercase text-gray-500 dark:text-gray-400">
             <tr>
               <th className="border-b px-4 py-3">항목</th>
               <th className="border-b px-4 py-3 text-right">Daily PnL</th>
@@ -131,13 +131,13 @@ function PnLSection({
           <tbody className="divide-y">
             {pnlAttribution.length === 0 ? (
               <tr>
-                <td colSpan={2} className="px-4 py-6 text-center text-gray-400">
+                <td colSpan={2} className="px-4 py-6 text-center text-gray-400 dark:text-gray-500">
                   해당 기준일의 PnL 데이터가 없습니다.
                 </td>
               </tr>
             ) : (
               pnlAttribution.map((item, i) => (
-                <tr key={i} className="hover:bg-gray-50">
+                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                   <td className="px-4 py-3">{item.name}</td>
                   <td
                     className={`px-4 py-3 text-right font-medium ${
@@ -160,9 +160,9 @@ function PnLSection({
 
 function PlaceholderSection({ label }: { label: string }) {
   return (
-    <div className="flex h-48 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-200 bg-gray-50">
-      <p className="text-lg font-medium text-gray-400">🚧 {label}</p>
-      <p className="mt-2 text-sm text-gray-300">
+    <div className="flex h-48 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+      <p className="text-lg font-medium text-gray-400 dark:text-gray-500">🚧 {label}</p>
+      <p className="mt-2 text-sm text-gray-300 dark:text-gray-600">
         2차 구현 예정 (데이터 소스 확정 후 추가)
       </p>
     </div>
