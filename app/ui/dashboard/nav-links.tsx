@@ -1,8 +1,10 @@
 'use client';
 
 import {
-  HomeIcon,
+  ClipboardDocumentListIcon,
   CubeTransparentIcon,
+  CurrencyDollarIcon,
+  ShieldExclamationIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -10,12 +12,14 @@ import clsx from 'clsx';
 
 // Map of links to display in the side navigation.
 const links = [
-  { name: 'Home', href: '/dashboard', icon: HomeIcon },
+  { name: '요약', href: '/dashboard', icon: ClipboardDocumentListIcon },
   {
     name: '구조화 상품',
     href: '/dashboard/strucprdm',
     icon: CubeTransparentIcon,
   },
+  { name: '손익', href: '/dashboard/pnl', icon: CurrencyDollarIcon },
+  { name: 'RISK', href: '/dashboard/risk', icon: ShieldExclamationIcon },
 ];
 
 export default function NavLinks() {
@@ -32,7 +36,9 @@ export default function NavLinks() {
               'flex h-[48px] grow items-center justify-center gap-2 rounded-md bg-gray-50 dark:bg-gray-800 p-3 text-sm font-medium hover:bg-sky-100 hover:text-blue-600 dark:hover:bg-gray-700 dark:hover:text-blue-400 dark:text-gray-300 md:flex-none md:justify-start md:p-2 md:px-3',
               {
                 'bg-sky-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300':
-                  pathname === link.href,
+                  link.href === '/dashboard'
+                    ? pathname === '/dashboard'
+                    : pathname.startsWith(link.href),
               },
             )}
           >
