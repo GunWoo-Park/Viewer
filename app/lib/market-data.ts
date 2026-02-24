@@ -158,8 +158,7 @@ export async function getMarketDailyData(
       sql`SELECT * FROM tb_bond_lending WHERE base_date = ${baseDate}`,
     ]);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    type Row = Record<string, any>;
+    type Row = Record<string, any>; // eslint-disable-line
 
     // --- 주요 증시 / FX ---
     const equityRows = macroResult.rows.filter(
