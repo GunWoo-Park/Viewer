@@ -1,8 +1,7 @@
 // app/lib/market-data.ts
-// Market 폴더 내 DAILY.xlsx 엑셀 파일 파싱
-import fs from 'fs';
-import path from 'path';
-import * as XLSX from 'xlsx';
+// DB에서 시장 데이터 조회 (기존 엑셀 파싱 → PostgreSQL 전환)
+import { sql } from '@vercel/postgres';
+import { unstable_noStore as noStore } from 'next/cache';
 
 // --- 타입 정의 ---
 
@@ -43,15 +42,6 @@ export type BondSpread = {
   sp: number;
 };
 
-export type MovingAverage = {
-  period: string;
-  tongAn1Y: number;
-  tongAn2Y: number;
-  gov3Y: number;
-  gov5Y: number;
-  gov10Y: number;
-};
-
 export type CreditSpread = {
   name: string;
   y3M: number;
@@ -64,6 +54,23 @@ export type CreditSpread = {
   y20Y: number;
 };
 
+export type KTBFutures = {
+  ticker: string;
+  price: number;
+  volume: number;
+  netForeign: number;
+  netFinInvest: number;
+  netBank: number;
+};
+
+export type BondLending = {
+  ticker: string;
+  borrowAmt: number;
+  repayAmt: number;
+  netChange: number;
+  balance: number;
+};
+
 export type MarketDailyData = {
   date: string;
   dayOfWeek: string;
@@ -73,189 +80,239 @@ export type MarketDailyData = {
   crs: CRSRate[];
   bonds: BondYield[];
   spreads: BondSpread[];
-  movingAverages: MovingAverage[];
   creditSpreads: CreditSpread[];
+  ktbFutures: KTBFutures[];
+  bondLending: BondLending[];
 };
 
-// --- 셀 값 헬퍼 ---
+// --- 사용 가능한 날짜 목록 조회 ---
 
-function num(val: any): number {
-  if (val === undefined || val === null || val === '' || val === '-') return 0;
-  const n = Number(val);
-  return isNaN(n) ? 0 : n;
+export async function fetchAvailableDates(): Promise<string[]> {
+  noStore();
+  try {
+    const data = await sql`
+      SELECT DISTINCT base_date
+      FROM tb_macro_index
+      ORDER BY base_date DESC
+      LIMIT 365
+    `;
+    return data.rows.map((r: { base_date: Date | string }) => {
+      const d = r.base_date;
+      if (d instanceof Date) {
+        return d.toISOString().split('T')[0];
+      }
+      return String(d);
+    });
+  } catch (error) {
+    console.error('fetchAvailableDates 에러:', error);
+    return [];
+  }
 }
 
-function str(val: any): string {
-  if (val === undefined || val === null) return '';
-  return String(val).trim();
-}
+// --- 특정 날짜의 시장 데이터 조회 ---
 
-// --- 엑셀 파싱 ---
-
-export async function getMarketDailyData(): Promise<MarketDailyData | null> {
-  // Market 폴더에서 가장 최신 _DAILY.xlsx 파일 찾기
-  const marketDir = path.join(process.cwd(), 'Market');
-
-  if (!fs.existsSync(marketDir)) {
-    console.error('Market 디렉토리 없음');
-    return null;
-  }
-
-  const files = fs.readdirSync(marketDir)
-    .filter((f) => f.endsWith('_DAILY.xlsx') && !f.startsWith('~$'))
-    .sort()
-    .reverse();
-
-  if (files.length === 0) {
-    console.error('Market 폴더에 _DAILY.xlsx 파일 없음');
-    return null;
-  }
-
-  const filePath = path.join(marketDir, files[0]);
+export async function getMarketDailyData(
+  targetDate?: string,
+): Promise<MarketDailyData | null> {
+  noStore();
 
   try {
-    const buf = fs.readFileSync(filePath);
-    const wb = XLSX.read(buf, { type: 'buffer', cellDates: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const raw = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+    // 날짜 결정: 지정 없으면 가장 최신 날짜 사용
+    let baseDate: string;
+    if (targetDate) {
+      baseDate = targetDate;
+    } else {
+      const latest = await sql`
+        SELECT MAX(base_date) as max_date FROM tb_macro_index
+      `;
+      if (!latest.rows[0]?.max_date) return null;
+      const d = latest.rows[0].max_date;
+      baseDate = d instanceof Date ? d.toISOString().split('T')[0] : String(d);
+    }
 
-    // 날짜 파싱 (row 3, col 33: 요일/날짜)
-    const dateVal = raw[3]?.[33];
-    const dateStr = dateVal instanceof Date
-      ? `${dateVal.getFullYear()}-${String(dateVal.getMonth() + 1).padStart(2, '0')}-${String(dateVal.getDate()).padStart(2, '0')}`
-      : str(dateVal);
-    const dayOfWeek = str(raw[1]?.[33]) || '';
+    // 요일 계산
+    const dateObj = new Date(baseDate + 'T00:00:00');
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    const dayOfWeek = dayNames[dateObj.getDay()] || '';
 
-    // --- 주요 증시 (rows 8~15) ---
-    const stockRows = [
-      { row: 8, name: 'DOW' },
-      { row: 9, name: 'NASDAQ' },
-      { row: 10, name: 'S&P 500' },
-      { row: 11, name: 'NIKKEI' },
-      { row: 12, name: 'KOSPI' },
-      { row: 13, name: 'KOSDAQ' },
-      { row: 14, name: 'USD/KRW' },
-      { row: 15, name: 'JPY/USD' },
-    ];
-    const stocks: StockIndex[] = stockRows.map((s) => ({
-      name: s.name,
-      level: num(raw[s.row]?.[3]),
-      change: num(raw[s.row]?.[4]),
-      changePercent: num(raw[s.row]?.[6]),
+    // 병렬로 모든 테이블 조회
+    const [
+      macroResult,
+      domesticResult,
+      yieldCurveResult,
+      ktbResult,
+      lendingResult,
+    ] = await Promise.all([
+      sql`SELECT * FROM tb_macro_index WHERE base_date = ${baseDate}`,
+      sql`SELECT * FROM tb_domestic_rate WHERE base_date = ${baseDate}`,
+      sql`SELECT * FROM tb_yield_curve_matrix WHERE base_date = ${baseDate}`,
+      sql`SELECT * FROM tb_ktb_futures WHERE base_date = ${baseDate}`,
+      sql`SELECT * FROM tb_bond_lending WHERE base_date = ${baseDate}`,
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    type Row = Record<string, any>;
+
+    // --- 주요 증시 / FX ---
+    const equityRows = macroResult.rows.filter(
+      (r: Row) => r.asset_class === 'EQUITY' || r.asset_class === 'FX',
+    );
+    const stocks: StockIndex[] = equityRows.map((r: Row) => ({
+      name: r.ticker,
+      level: Number(r.close_value) || 0,
+      change: Number(r.change_val) || 0,
+      changePercent: Number(r.change_pct) || 0,
     }));
 
-    // --- 미국채 금리 (rows 8~11) ---
-    const usRows = [
-      { row: 8, tenor: '2Y' },
-      { row: 9, tenor: '5Y' },
-      { row: 10, tenor: '10Y' },
-      { row: 11, tenor: '30Y' },
-    ];
-    const usTreasury: USTreasury[] = usRows.map((u) => ({
-      tenor: u.tenor,
-      level: num(raw[u.row]?.[9]),
-      change: num(raw[u.row]?.[10]),
+    // --- 미국채 금리 ---
+    const usBondRows = macroResult.rows.filter(
+      (r: Row) => r.asset_class === 'US_BOND',
+    );
+    const tenorOrder = ['US 2Y', 'US 5Y', 'US 10Y', 'US 30Y'];
+    const usTreasury: USTreasury[] = tenorOrder
+      .map((name) => {
+        const row = usBondRows.find((r: Row) => r.ticker === name);
+        if (!row) return null;
+        return {
+          tenor: name.replace('US ', ''),
+          level: Number(row.close_value) || 0,
+          change: Number(row.change_val) || 0,
+        };
+      })
+      .filter(Boolean) as USTreasury[];
+
+    // --- IRS ---
+    const irsRows = domesticResult.rows.filter(
+      (r: Row) => r.rate_type === 'IRS',
+    );
+    const irsTenorOrder = ['1Y', '2Y', '3Y', '5Y', '10Y'];
+    const irs: IRSRate[] = irsTenorOrder
+      .map((tenor) => {
+        const row = irsRows.find((r: Row) => r.maturity === tenor);
+        if (!row) return null;
+        return {
+          tenor,
+          rate: Number(row.yield_val) || 0,
+          change: Number(row.change_bp) || 0,
+        };
+      })
+      .filter(Boolean) as IRSRate[];
+
+    // --- CRS ---
+    const crsRows = domesticResult.rows.filter(
+      (r: Row) => r.rate_type === 'CRS',
+    );
+    const crs: CRSRate[] = irsTenorOrder
+      .map((tenor) => {
+        const row = crsRows.find((r: Row) => r.maturity === tenor);
+        if (!row) return null;
+        return {
+          tenor,
+          rate: Number(row.yield_val) || 0,
+          change: Number(row.change_bp) || 0,
+        };
+      })
+      .filter(Boolean) as CRSRate[];
+
+    // --- CD/통안/국고/회사채 ---
+    const cashRows = domesticResult.rows.filter(
+      (r: Row) => r.rate_type === 'CASH',
+    );
+    const bonds: BondYield[] = cashRows.map((r: Row) => ({
+      name: r.maturity || r.ticker_name || '',
+      level: Number(r.yield_val) || 0,
+      change: Number(r.change_bp) || 0,
     }));
 
-    // --- IRS (rows 8~12) ---
-    const irsRows = [
-      { row: 8, tenor: '1Y' },
-      { row: 9, tenor: '2Y' },
-      { row: 10, tenor: '3Y' },
-      { row: 11, tenor: '5Y' },
-      { row: 12, tenor: '10Y' },
+    // --- Bond-Swap Spread (IRS - CASH 계산) ---
+    const spreadPairs = [
+      { name: '통안1Y-IRS1Y', cashKey: 'CD 91일', irsKey: '1Y' },
+      { name: '통안2Y-IRS2Y', cashKey: '통안 2년', irsKey: '2Y' },
+      { name: '국고3Y-IRS3Y', cashKey: '국고 3년', irsKey: '3Y' },
+      { name: '국고5Y-IRS5Y', cashKey: '국고 5년', irsKey: '5Y' },
+      { name: '국고10Y-IRS10Y', cashKey: '국고 10년', irsKey: '10Y' },
     ];
-    const irs: IRSRate[] = irsRows.map((i) => ({
-      tenor: i.tenor,
-      rate: num(raw[i.row]?.[15]),
-      change: num(raw[i.row]?.[16]),
+    const spreads: BondSpread[] = spreadPairs.map((p) => {
+      const irsRow = irsRows.find((r: Row) => r.maturity === p.irsKey);
+      const cashRow = cashRows.find((r: Row) => r.maturity === p.cashKey);
+      const irsVal = Number(irsRow?.yield_val) || 0;
+      const cashVal = Number(cashRow?.yield_val) || 0;
+      return {
+        name: p.name,
+        irs: irsVal,
+        sp: cashVal && irsVal ? (cashVal - irsVal) * 100 : 0,
+      };
+    });
+
+    // --- 크레딧 커브 ---
+    const tenors = ['3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', '20Y'];
+    const sectorGroups = new Map<string, Map<string, number>>();
+
+    for (const row of yieldCurveResult.rows) {
+      const key =
+        row.credit_rating && row.credit_rating.trim()
+          ? `${row.sector} ${row.credit_rating}`
+          : row.sector;
+      if (!sectorGroups.has(key)) {
+        sectorGroups.set(key, new Map());
+      }
+      sectorGroups.get(key)!.set(row.tenor, Number(row.yield_rate) || 0);
+    }
+
+    // 정렬 순서 지정
+    const creditOrder = [
+      '국고',
+      '국주',
+      '특수 AAA',
+      '특수 AA+',
+      '은행 AAA',
+      '은행 AA+',
+      '카드 AA+',
+      '카드 AA0',
+      '회사 AAA',
+      '회사 AA+',
+      '회사 AA0',
+      '회사 AA-',
+    ];
+
+    const creditSpreads: CreditSpread[] = creditOrder
+      .filter((name) => sectorGroups.has(name))
+      .map((name) => {
+        const tenorMap = sectorGroups.get(name)!;
+        return {
+          name,
+          y3M: tenorMap.get('3M') || 0,
+          y6M: tenorMap.get('6M') || 0,
+          y1Y: tenorMap.get('1Y') || 0,
+          y2Y: tenorMap.get('2Y') || 0,
+          y3Y: tenorMap.get('3Y') || 0,
+          y5Y: tenorMap.get('5Y') || 0,
+          y10Y: tenorMap.get('10Y') || 0,
+          y20Y: tenorMap.get('20Y') || 0,
+        };
+      });
+
+    // --- KTB 선물 ---
+    const ktbFutures: KTBFutures[] = ktbResult.rows.map((r: Row) => ({
+      ticker: r.ticker,
+      price: Number(r.close_price) || 0,
+      volume: Number(r.volume) || 0,
+      netForeign: Number(r.net_foreign) || 0,
+      netFinInvest: Number(r.net_fin_invest) || 0,
+      netBank: Number(r.net_bank) || 0,
     }));
 
-    // --- CRS (rows 8~12) ---
-    const crsRows = [
-      { row: 8, tenor: '1Y' },
-      { row: 9, tenor: '2Y' },
-      { row: 10, tenor: '3Y' },
-      { row: 11, tenor: '5Y' },
-      { row: 12, tenor: '10Y' },
-    ];
-    const crs: CRSRate[] = crsRows.map((c) => ({
-      tenor: c.tenor,
-      rate: num(raw[c.row]?.[18]),
-      change: num(raw[c.row]?.[19]),
-    }));
-
-    // --- CD/통안/회사채 (rows 8~16) ---
-    const bondRows = [
-      { row: 8, name: 'CD 1M' },
-      { row: 9, name: 'CD 91일' },
-      { row: 10, name: '회3Y AA-' },
-      { row: 11, name: '회3Y A+' },
-      { row: 12, name: '회3Y BBB-' },
-      { row: 13, name: '통안 2년' },
-      { row: 14, name: '국고 3년' },
-      { row: 15, name: '국고 5년' },
-      { row: 16, name: '국고 10년' },
-    ];
-    const bonds: BondYield[] = bondRows.map((b) => ({
-      name: b.name,
-      level: num(raw[b.row]?.[23]),
-      change: num(raw[b.row]?.[24]),
-    }));
-
-    // --- Bond-Swap Spread (row 26) ---
-    const spreads: BondSpread[] = [
-      { name: '통안1Y-IRS1Y', irs: num(raw[26]?.[21]), sp: num(raw[26]?.[23]) },
-      { name: '통안2Y-IRS2Y', irs: num(raw[26]?.[24]), sp: num(raw[26]?.[26]) },
-      { name: '국고3Y-IRS3Y', irs: num(raw[26]?.[27]), sp: num(raw[26]?.[29]) },
-      { name: '국고5Y-IRS5Y', irs: num(raw[26]?.[30]), sp: num(raw[26]?.[31]) },
-      { name: '국고10Y-IRS10Y', irs: num(raw[26]?.[32]), sp: num(raw[26]?.[33]) },
-    ];
-
-    // --- 이동평균 (rows 30~34) ---
-    const maRows = [
-      { row: 30, period: '5MA' },
-      { row: 31, period: '20MA' },
-      { row: 32, period: '60MA' },
-      { row: 33, period: '120MA' },
-      { row: 34, period: '200MA' },
-    ];
-    const movingAverages: MovingAverage[] = maRows.map((m) => ({
-      period: m.period,
-      tongAn1Y: num(raw[m.row]?.[4]),
-      tongAn2Y: num(raw[m.row]?.[6]),
-      gov3Y: num(raw[m.row]?.[8]),
-      gov5Y: num(raw[m.row]?.[10]),
-      gov10Y: num(raw[m.row]?.[12]),
-    }));
-
-    // --- 신용 스프레드 (rows 78~95, 크레딧 커브) ---
-    const creditRows = [
-      { row: 79, name: '국고' },
-      { row: 80, name: '국주' },
-      { row: 83, name: '특수 AAA' },
-      { row: 84, name: '특수 AA+' },
-      { row: 88, name: '은행 AAA' },
-      { row: 89, name: '은행 AA+' },
-      { row: 92, name: '회사 AAA' },
-      { row: 93, name: '회사 AA+' },
-      { row: 94, name: '회사 AA0' },
-      { row: 95, name: '회사 AA-' },
-    ];
-    const creditSpreads: CreditSpread[] = creditRows.map((c) => ({
-      name: c.name,
-      y3M: num(raw[c.row]?.[3]),
-      y6M: num(raw[c.row]?.[4]),
-      y1Y: num(raw[c.row]?.[6]),
-      y2Y: num(raw[c.row]?.[7]),
-      y3Y: num(raw[c.row]?.[8]),
-      y5Y: num(raw[c.row]?.[9]),
-      y10Y: num(raw[c.row]?.[10]),
-      y20Y: num(raw[c.row]?.[11]),
+    // --- 채권 대차 ---
+    const bondLending: BondLending[] = lendingResult.rows.map((r: Row) => ({
+      ticker: r.bond_ticker,
+      borrowAmt: Number(r.borrow_amt) || 0,
+      repayAmt: Number(r.repay_amt) || 0,
+      netChange: Number(r.net_change) || 0,
+      balance: Number(r.balance) || 0,
     }));
 
     return {
-      date: dateStr,
+      date: baseDate,
       dayOfWeek,
       stocks,
       usTreasury,
@@ -263,11 +320,71 @@ export async function getMarketDailyData(): Promise<MarketDailyData | null> {
       crs,
       bonds,
       spreads,
-      movingAverages,
       creditSpreads,
+      ktbFutures,
+      bondLending,
     };
   } catch (error) {
-    console.error('Market DAILY 파싱 에러:', error);
+    console.error('Market DB 조회 에러:', error);
     return null;
+  }
+}
+
+// --- 시계열 데이터 조회 (특정 지표의 일별 추이) ---
+
+export type TimeSeriesPoint = {
+  date: string;
+  value: number;
+};
+
+export async function fetchTimeSeries(
+  table: 'macro' | 'domestic' | 'credit',
+  ticker: string,
+  days: number = 30,
+): Promise<TimeSeriesPoint[]> {
+  noStore();
+  try {
+    let result;
+    switch (table) {
+      case 'macro':
+        result = await sql`
+          SELECT base_date, close_value as value
+          FROM tb_macro_index
+          WHERE ticker = ${ticker}
+          ORDER BY base_date DESC
+          LIMIT ${days}
+        `;
+        break;
+      case 'domestic':
+        result = await sql`
+          SELECT base_date, yield_val as value
+          FROM tb_domestic_rate
+          WHERE maturity = ${ticker}
+          ORDER BY base_date DESC
+          LIMIT ${days}
+        `;
+        break;
+      case 'credit':
+        result = await sql`
+          SELECT base_date, yield_rate as value
+          FROM tb_yield_curve_matrix
+          WHERE sector = ${ticker}
+          ORDER BY base_date DESC
+          LIMIT ${days}
+        `;
+        break;
+    }
+
+    return (result?.rows || []).map((r: { base_date: Date | string; value: number }) => {
+      const d = r.base_date;
+      return {
+        date:
+          d instanceof Date ? d.toISOString().split('T')[0] : String(d),
+        value: Number(r.value) || 0,
+      };
+    }).reverse();
+  } catch (error) {
+    console.error('fetchTimeSeries 에러:', error);
+    return [];
   }
 }
