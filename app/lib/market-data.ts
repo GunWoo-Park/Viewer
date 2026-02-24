@@ -85,6 +85,18 @@ export type MarketDailyData = {
   bondLending: BondLending[];
 };
 
+// --- 날짜 헬퍼 (타임존 안전) ---
+// Date.toISOString()은 UTC 기준이라 KST에서 하루가 밀릴 수 있음
+function formatDateSafe(d: Date | string): string {
+  if (d instanceof Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  return String(d).split('T')[0];
+}
+
 // --- 사용 가능한 날짜 목록 조회 ---
 
 export async function fetchAvailableDates(): Promise<string[]> {
@@ -96,13 +108,9 @@ export async function fetchAvailableDates(): Promise<string[]> {
       ORDER BY base_date DESC
       LIMIT 365
     `;
-    return data.rows.map((r: { base_date: Date | string }) => {
-      const d = r.base_date;
-      if (d instanceof Date) {
-        return d.toISOString().split('T')[0];
-      }
-      return String(d);
-    });
+    return data.rows.map((r: { base_date: Date | string }) =>
+      formatDateSafe(r.base_date),
+    );
   } catch (error) {
     console.error('fetchAvailableDates 에러:', error);
     return [];
@@ -126,12 +134,12 @@ export async function getMarketDailyData(
         SELECT MAX(base_date) as max_date FROM tb_macro_index
       `;
       if (!latest.rows[0]?.max_date) return null;
-      const d = latest.rows[0].max_date;
-      baseDate = d instanceof Date ? d.toISOString().split('T')[0] : String(d);
+      baseDate = formatDateSafe(latest.rows[0].max_date);
     }
 
-    // 요일 계산
-    const dateObj = new Date(baseDate + 'T00:00:00');
+    // 요일 계산 (로컬 타임존 기준)
+    const [yyyy, mm, dd] = baseDate.split('-').map(Number);
+    const dateObj = new Date(yyyy, mm - 1, dd);
     const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
     const dayOfWeek = dayNames[dateObj.getDay()] || '';
 
@@ -325,7 +333,9 @@ export async function getMarketDailyData(
       bondLending,
     };
   } catch (error) {
-    console.error('Market DB 조회 에러:', error);
+    console.error('=== Market DB 조회 에러 ===');
+    console.error('targetDate:', targetDate);
+    console.error('에러 상세:', error);
     return null;
   }
 }
@@ -375,14 +385,10 @@ export async function fetchTimeSeries(
         break;
     }
 
-    return (result?.rows || []).map((r: { base_date: Date | string; value: number }) => {
-      const d = r.base_date;
-      return {
-        date:
-          d instanceof Date ? d.toISOString().split('T')[0] : String(d),
-        value: Number(r.value) || 0,
-      };
-    }).reverse();
+    return (result?.rows || []).map((r: { base_date: Date | string; value: number }) => ({
+      date: formatDateSafe(r.base_date),
+      value: Number(r.value) || 0,
+    })).reverse();
   } catch (error) {
     console.error('fetchTimeSeries 에러:', error);
     return [];
