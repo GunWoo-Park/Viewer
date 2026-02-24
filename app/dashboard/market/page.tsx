@@ -8,13 +8,11 @@ import { lusitana } from '@/app/ui/fonts';
 import { Suspense } from 'react';
 import { CardsSkeleton } from '@/app/ui/skeletons';
 
-export default async function MarketPage({
-  searchParams,
-}: {
+export default async function MarketPage(props: {
   searchParams?: Promise<{ date?: string }>;
 }) {
-  const params = await searchParams;
-  const targetDate = params?.date || undefined;
+  const searchParams = await props.searchParams;
+  const targetDate = searchParams?.date || undefined;
 
   const [marketData, availableDates] = await Promise.all([
     getMarketDailyData(targetDate),
