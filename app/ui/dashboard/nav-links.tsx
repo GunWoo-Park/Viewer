@@ -5,6 +5,7 @@ import {
   CubeTransparentIcon,
   CurrencyDollarIcon,
   ShieldExclamationIcon,
+  ChartBarIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -18,6 +19,7 @@ const links = [
     href: '/dashboard/strucprdm',
     icon: CubeTransparentIcon,
   },
+  { name: '시장', href: '/dashboard/market', icon: ChartBarIcon },
   { name: '손익', href: '/dashboard/pnl', icon: CurrencyDollarIcon },
   { name: 'RISK', href: '/dashboard/risk', icon: ShieldExclamationIcon },
 ];
