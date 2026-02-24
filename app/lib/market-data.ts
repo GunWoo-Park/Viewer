@@ -108,8 +108,8 @@ export async function fetchAvailableDates(): Promise<string[]> {
       ORDER BY base_date DESC
       LIMIT 365
     `;
-    return data.rows.map((r: { base_date: Date | string }) =>
-      formatDateSafe(r.base_date),
+    return data.rows.map((r) =>
+      formatDateSafe(r.base_date as Date | string),
     );
   } catch (error) {
     console.error('fetchAvailableDates 에러:', error);
@@ -384,8 +384,8 @@ export async function fetchTimeSeries(
         break;
     }
 
-    return (result?.rows || []).map((r: { base_date: Date | string; value: number }) => ({
-      date: formatDateSafe(r.base_date),
+    return (result?.rows || []).map((r) => ({
+      date: formatDateSafe(r.base_date as Date | string),
       value: Number(r.value) || 0,
     })).reverse();
   } catch (error) {
