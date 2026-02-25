@@ -7,32 +7,36 @@ import ThemeToggle from '@/app/ui/theme-toggle';
 
 export default function SideNav() {
   return (
-    <div className="flex h-full flex-col px-3 py-4 md:px-2">
+    <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 px-4 py-2">
+      {/* 로고 */}
       <Link
-        className="mb-2 flex h-16 items-end justify-start rounded-md bg-blue-600 p-3 md:h-28"
+        className="flex h-10 items-center rounded-md bg-blue-600 px-3 mr-2"
         href="/"
       >
-        <div className="w-28 text-white md:w-32">
+        <div className="w-24 text-white">
           <AcmeLogo />
         </div>
       </Link>
-      <div className="flex grow flex-row justify-between space-x-2 md:flex-col md:space-x-0 md:space-y-2">
+
+      {/* 네비게이션 링크 */}
+      <div className="flex flex-1 items-center gap-1 overflow-x-auto">
         <NavLinks />
-        <div className="hidden h-auto w-full grow rounded-md bg-gray-50 dark:bg-gray-800 md:block"></div>
-        <div className="flex items-center gap-2 md:flex-col md:gap-2">
-          <ThemeToggle />
-          <form
-            action={async () => {
-              'use server';
-              await signOut();
-            }}
-          >
-            <button className="flex h-[48px] w-full grow items-center justify-center gap-2 rounded-md bg-gray-50 dark:bg-gray-800 p-3 text-sm font-medium hover:bg-sky-100 hover:text-blue-600 dark:hover:bg-gray-700 dark:hover:text-blue-400 dark:text-gray-300 md:flex-none md:justify-start md:p-2 md:px-3">
-              <PowerIcon className="w-6" />
-              <div className="hidden md:block">Sign Out</div>
-            </button>
-          </form>
-        </div>
+      </div>
+
+      {/* 우측: 테마 토글 + 로그아웃 */}
+      <div className="flex items-center gap-1 ml-auto">
+        <ThemeToggle />
+        <form
+          action={async () => {
+            'use server';
+            await signOut();
+          }}
+        >
+          <button className="flex h-9 items-center gap-2 rounded-md bg-gray-50 dark:bg-gray-800 px-3 text-sm font-medium hover:bg-sky-100 hover:text-blue-600 dark:hover:bg-gray-700 dark:hover:text-blue-400 dark:text-gray-300">
+            <PowerIcon className="w-5" />
+            <span className="hidden md:inline">Sign Out</span>
+          </button>
+        </form>
       </div>
     </div>
   );
