@@ -568,6 +568,43 @@ export async function fetchStrucprdpPages(
   }
 }
 
+// OBJ_CD별 최신 쿠폰(Rcv) / 펀딩(Pay) 금리 조회
+// strucfe_accint 테이블에서 각 OBJ_CD의 가장 최신 STD_DT 기준 RATE를 반환
+export async function fetchLatestAccintRates(): Promise<
+  Record<string, { couponRate: number | null; fundRate: number | null }>
+> {
+  noStore();
+
+  try {
+    const data = await sql`
+      SELECT DISTINCT ON (obj_cd, leg_tp)
+        obj_cd, leg_tp, rate
+      FROM strucfe_accint
+      ORDER BY obj_cd, leg_tp, std_dt DESC
+    `;
+
+    const result: Record<string, { couponRate: number | null; fundRate: number | null }> = {};
+
+    for (const row of data.rows) {
+      const objCd = row.obj_cd;
+      if (!result[objCd]) {
+        result[objCd] = { couponRate: null, fundRate: null };
+      }
+      const rate = row.rate != null ? Number(row.rate) : null;
+      if (row.leg_tp === 'Coupon') {
+        result[objCd].couponRate = rate;
+      } else if (row.leg_tp === 'Fund') {
+        result[objCd].fundRate = rate;
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Database Error:', error);
+    return {};
+  }
+}
+
 export async function fetchStrucprdpById(objCd: string): Promise<Strucprdp | null> {
   noStore();
 

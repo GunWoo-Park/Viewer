@@ -11,7 +11,7 @@ import {
   DistributionChartsSkeleton,
   TableSkeleton,
 } from '@/app/ui/strucprdm/skeletons';
-import { fetchStrucprdpSummary, fetchStrucprdpPages } from '@/app/lib/data';
+import { fetchStrucprdpSummary, fetchStrucprdpPages, fetchLatestAccintRates } from '@/app/lib/data';
 
 export const metadata: Metadata = {
   title: '구조화 상품',
@@ -94,7 +94,7 @@ async function DistributionChartsWrapper() {
   return <DistributionCharts summary={summary} />;
 }
 
-// 테이블 서버 컴포넌트 래퍼 (환율 전달)
+// 테이블 서버 컴포넌트 래퍼 (환율 + 쿠폰/펀딩 금리 전달)
 async function StrucprdmTableWrapper({
   query,
   currentPage,
@@ -104,7 +104,10 @@ async function StrucprdmTableWrapper({
   currentPage: number;
   callFilter: string;
 }) {
-  const summary = await fetchStrucprdpSummary();
+  const [summary, accintRates] = await Promise.all([
+    fetchStrucprdpSummary(),
+    fetchLatestAccintRates(),
+  ]);
   const usdKrwRate = summary?.usdKrwRate ?? 1450;
   return (
     <StrucprdmTable
@@ -112,6 +115,7 @@ async function StrucprdmTableWrapper({
       currentPage={currentPage}
       callFilter={callFilter}
       usdKrwRate={usdKrwRate}
+      accintRates={accintRates}
     />
   );
 }

@@ -89,16 +89,44 @@ function buildStructType(p: Strucprdp): string {
     .join(' / ');
 }
 
+// 금리 포맷: 소수 → 퍼센트 (예: 0.035 → 3.50%)
+function formatRate(rate: number | null): string {
+  if (rate == null) return '-';
+  return `${(rate * 100).toFixed(2)}%`;
+}
+
+// Rcv/Pay Rate 표시 컴포넌트
+function RateCell({
+  rate,
+  type,
+}: {
+  rate: number | null;
+  type: 'rcv' | 'pay';
+}) {
+  if (rate == null) return <span className="text-gray-300 dark:text-gray-600">-</span>;
+  const color =
+    type === 'rcv'
+      ? 'text-blue-600 dark:text-blue-400'
+      : 'text-rose-600 dark:text-rose-400';
+  return (
+    <span className={`font-mono text-xs font-medium ${color}`}>
+      {formatRate(rate)}
+    </span>
+  );
+}
+
 export default async function StrucprdpTable({
   query,
   currentPage,
   callFilter = 'N',
   usdKrwRate = 1450,
+  accintRates = {},
 }: {
   query: string;
   currentPage: number;
   callFilter?: string;
   usdKrwRate?: number;
+  accintRates?: Record<string, { couponRate: number | null; fundRate: number | null }>;
 }) {
   const products = await fetchFilteredStrucprdp(query, currentPage, callFilter);
 
@@ -149,6 +177,18 @@ export default async function StrucprdpTable({
                 <p>{p.mat_prd}Y</p>
               </div>
             </div>
+            {p.asst_lblt === '자산' && accintRates[p.obj_cd] && (
+              <div className="mt-2 pt-2 border-t dark:border-gray-700 grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Pay Rate (Fund)</p>
+                  <RateCell rate={accintRates[p.obj_cd].fundRate} type="pay" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Rcv Rate (Coupon)</p>
+                  <RateCell rate={accintRates[p.obj_cd].couponRate} type="rcv" />
+                </div>
+              </div>
+            )}
             {(p.pay_cond || p.struct_cond) && (
               <div className="mt-2 pt-2 border-t dark:border-gray-700">
                 <p className="text-xs text-gray-400 dark:text-gray-500">Pay 구조</p>
@@ -181,8 +221,11 @@ export default async function StrucprdpTable({
               <th className="px-3 py-3 whitespace-nowrap">유효일</th>
               <th className="px-3 py-3 whitespace-nowrap">만기일</th>
               <th className="px-3 py-3 whitespace-nowrap">구조 유형</th>
-              <th className="px-3 py-3 whitespace-nowrap">Call</th>
+              <th className="px-3 py-3 whitespace-nowrap">Call 여부</th>
+              <th className="px-3 py-3 whitespace-nowrap text-center">Carry Rate</th>
+              <th className="px-3 py-3 whitespace-nowrap text-center">Pay Rate</th>
               <th className="px-3 py-3">Pay 구조</th>
+              <th className="px-3 py-3 whitespace-nowrap text-center">Rcv Rate</th>
               <th className="px-3 py-3">Rcv 구조</th>
             </tr>
           </thead>
@@ -232,8 +275,42 @@ export default async function StrucprdpTable({
                     <span className="text-gray-300">-</span>
                   )}
                 </td>
+                <td className="px-3 py-3 whitespace-nowrap text-center">
+                  {(() => {
+                    const rates = accintRates[p.obj_cd];
+                    if (p.asst_lblt !== '자산' || !rates || rates.couponRate == null || rates.fundRate == null) {
+                      return <span className="text-gray-300 dark:text-gray-600">-</span>;
+                    }
+                    const carry = rates.couponRate - rates.fundRate;
+                    const color = carry > 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : carry < 0
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-gray-500 dark:text-gray-400';
+                    const sign = carry > 0 ? '+' : '';
+                    return (
+                      <span className={`font-mono text-xs font-semibold ${color}`}>
+                        {sign}{(carry * 100).toFixed(2)}%
+                      </span>
+                    );
+                  })()}
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap text-center">
+                  {p.asst_lblt === '자산' && accintRates[p.obj_cd] ? (
+                    <RateCell rate={accintRates[p.obj_cd].fundRate} type="pay" />
+                  ) : (
+                    <span className="text-gray-300 dark:text-gray-600">-</span>
+                  )}
+                </td>
                 <td className="px-3 py-3 max-w-[300px]">
                   <StructCondTooltip condition={p.pay_cond || p.struct_cond} />
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap text-center">
+                  {p.asst_lblt === '자산' && accintRates[p.obj_cd] ? (
+                    <RateCell rate={accintRates[p.obj_cd].couponRate} type="rcv" />
+                  ) : (
+                    <span className="text-gray-300 dark:text-gray-600">-</span>
+                  )}
                 </td>
                 <td className="px-3 py-3 max-w-[300px]">
                   <StructCondTooltip condition={p.rcv_cond || p.struct_cond} />
