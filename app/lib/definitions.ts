@@ -179,6 +179,7 @@ export type StrucprdpSummary = {
   usdAssetCount: number;
   krwAssetNotional: number;
   usdAssetNotional: number;
+  usdKrwRate: number; // 최신 USD/KRW 환율
   typeDistribution: {
     struct_type: string;
     curr: string;

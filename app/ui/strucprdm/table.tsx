@@ -8,20 +8,41 @@ function formatDate(dt: string): string {
   return `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)}`;
 }
 
-// 명목금액 포맷
-function formatNotional(notn: number, curr: string): string {
-  if (curr === 'KRW') {
-    const billions = notn / 100000000;
-    return `${billions.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}억`;
-  }
+// 명목금액 포맷 (원화 기준)
+function formatKRW(amount: number): string {
+  const billions = amount / 100000000;
+  return `${billions.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}억`;
+}
+
+function formatUSD(amount: number): string {
+  const millions = amount / 1000000;
+  if (millions >= 1)
+    return `$${millions.toLocaleString('en-US', { maximumFractionDigits: 1 })}M`;
+  return `$${amount.toLocaleString('en-US')}`;
+}
+
+// 명목금액 표시 컴포넌트: USD는 원화환산 메인 + (달러) 작게 표시
+function NotionalDisplay({
+  notn,
+  curr,
+  usdKrwRate,
+}: {
+  notn: number;
+  curr: string;
+  usdKrwRate: number;
+}) {
   if (curr === 'USD') {
-    const millions = notn / 1000000;
-    if (millions >= 1) {
-      return `$${millions.toLocaleString('en-US', { maximumFractionDigits: 1 })}M`;
-    }
-    return `$${notn.toLocaleString('en-US')}`;
+    const krwConverted = notn * usdKrwRate;
+    return (
+      <div className="text-right">
+        <span className="font-medium">{formatKRW(krwConverted)}</span>
+        <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">
+          ({formatUSD(notn)})
+        </span>
+      </div>
+    );
   }
-  return notn.toLocaleString();
+  return <span className="font-medium">{formatKRW(notn)}</span>;
 }
 
 // 수수료(UPFRNT) 포맷: bp 단위는 그대로, 금액은 원화 기준 포맷
@@ -72,10 +93,12 @@ export default async function StrucprdpTable({
   query,
   currentPage,
   callFilter = 'N',
+  usdKrwRate = 1450,
 }: {
   query: string;
   currentPage: number;
   callFilter?: string;
+  usdKrwRate?: number;
 }) {
   const products = await fetchFilteredStrucprdp(query, currentPage, callFilter);
 
@@ -106,7 +129,7 @@ export default async function StrucprdpTable({
               </div>
               <div>
                 <p className="text-gray-400 dark:text-gray-500 text-xs">명목금액</p>
-                <p className="font-medium">{formatNotional(p.notn, p.curr)}</p>
+                <NotionalDisplay notn={p.notn} curr={p.curr} usdKrwRate={usdKrwRate} />
               </div>
               <div>
                 <p className="text-gray-400 dark:text-gray-500 text-xs">수수료</p>
@@ -181,8 +204,8 @@ export default async function StrucprdpTable({
                 <td className="px-3 py-3 whitespace-nowrap">
                   <CurrBadge value={p.curr} />
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-right font-medium">
-                  {formatNotional(p.notn, p.curr)}
+                <td className="px-3 py-3 whitespace-nowrap text-right">
+                  <NotionalDisplay notn={p.notn} curr={p.curr} usdKrwRate={usdKrwRate} />
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-xs font-medium">
                   {(() => {

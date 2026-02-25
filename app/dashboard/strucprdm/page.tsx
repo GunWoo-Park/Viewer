@@ -60,7 +60,7 @@ export default async function StrucprdmPage({
           <CallFilter />
         </div>
         <Suspense key={query + currentPage + callFilter} fallback={<TableSkeleton />}>
-          <StrucprdmTable query={query} currentPage={currentPage} callFilter={callFilter} />
+          <StrucprdmTableWrapper query={query} currentPage={currentPage} callFilter={callFilter} />
         </Suspense>
         <div className="mt-5 flex w-full justify-center">
           <Suspense fallback={null}>
@@ -92,6 +92,28 @@ async function DistributionChartsWrapper() {
   const summary = await fetchStrucprdpSummary();
   if (!summary) return null;
   return <DistributionCharts summary={summary} />;
+}
+
+// 테이블 서버 컴포넌트 래퍼 (환율 전달)
+async function StrucprdmTableWrapper({
+  query,
+  currentPage,
+  callFilter,
+}: {
+  query: string;
+  currentPage: number;
+  callFilter: string;
+}) {
+  const summary = await fetchStrucprdpSummary();
+  const usdKrwRate = summary?.usdKrwRate ?? 1450;
+  return (
+    <StrucprdmTable
+      query={query}
+      currentPage={currentPage}
+      callFilter={callFilter}
+      usdKrwRate={usdKrwRate}
+    />
+  );
 }
 
 // 페이지네이션 서버 컴포넌트 래퍼

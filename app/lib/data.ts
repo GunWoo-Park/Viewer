@@ -399,7 +399,7 @@ export async function fetchStrucprdpSummary(): Promise<StrucprdpSummary | null> 
 
   try {
     // Alive(call_yn='N') + 자산(asst_lblt='자산') 기준으로만 집계
-    const [countData, typeData, cntrData] = await Promise.all([
+    const [countData, typeData, cntrData, fxData] = await Promise.all([
       // 자산 + Alive 기준 KRW/USD 건수·명목금액
       sql`
         SELECT
@@ -443,7 +443,20 @@ export async function fetchStrucprdpSummary(): Promise<StrucprdpSummary | null> 
         ORDER BY COALESCE(SUM(notn), 0) DESC
         LIMIT 20
       `,
+      // 최신 USD/KRW 환율 조회 (시장 데이터)
+      sql`
+        SELECT close_value
+        FROM tb_macro_index
+        WHERE ticker = 'USD/KRW' AND asset_class = 'FX'
+        ORDER BY base_date DESC
+        LIMIT 1
+      `,
     ]);
+
+    // USD/KRW 환율 (조회 실패 시 기본값 1450)
+    const usdKrwRate = fxData.rows.length > 0
+      ? Number(fxData.rows[0].close_value)
+      : 1450;
 
     return {
       totalCount: Number(countData.rows[0].total),
@@ -453,6 +466,7 @@ export async function fetchStrucprdpSummary(): Promise<StrucprdpSummary | null> 
       usdAssetCount: Number(countData.rows[0].usd_count),
       krwAssetNotional: Number(countData.rows[0].krw_asset_notional),
       usdAssetNotional: Number(countData.rows[0].usd_asset_notional),
+      usdKrwRate,
       typeDistribution: typeData.rows.map((r) => ({
         struct_type: r.struct_type,
         curr: r.curr || 'KRW',

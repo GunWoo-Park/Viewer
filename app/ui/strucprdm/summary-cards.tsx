@@ -22,12 +22,14 @@ function SummaryCard({
   title,
   value,
   subValue,
+  secondaryValue,
   icon: Icon,
   color,
 }: {
   title: string;
   value: string;
   subValue?: string;
+  secondaryValue?: string;
   icon: React.ComponentType<{ className?: string }>;
   color: string;
 }) {
@@ -40,6 +42,11 @@ function SummaryCard({
         <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
       </div>
       <p className="mt-2 text-2xl font-semibold dark:text-gray-100">{value}</p>
+      {secondaryValue && (
+        <p className="mt-0.5 text-sm text-gray-400 dark:text-gray-500">
+          ({secondaryValue})
+        </p>
+      )}
       {subValue && (
         <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{subValue}</p>
       )}
@@ -52,6 +59,12 @@ export default function SummaryCards({
 }: {
   summary: StrucprdpSummary;
 }) {
+  // USD 자산을 원화로 환산
+  const usdInKrw = summary.usdAssetNotional * summary.usdKrwRate;
+  const rateDisplay = summary.usdKrwRate.toLocaleString('ko-KR', {
+    maximumFractionDigits: 1,
+  });
+
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <SummaryCard
@@ -70,8 +83,9 @@ export default function SummaryCards({
       />
       <SummaryCard
         title="USD 상품 (자산)"
-        value={formatUSD(summary.usdAssetNotional)}
-        subValue={`${summary.usdAssetCount}건`}
+        value={formatKRW(usdInKrw)}
+        secondaryValue={formatUSD(summary.usdAssetNotional)}
+        subValue={`${summary.usdAssetCount}건 · 적용환율 ${rateDisplay}`}
         icon={CurrencyDollarIcon}
         color="bg-violet-500"
       />
