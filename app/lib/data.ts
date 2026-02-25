@@ -491,10 +491,9 @@ export async function fetchFilteredStrucprdp(
 ): Promise<Strucprdp[]> {
   noStore();
 
-  const offset = (currentPage - 1) * STRUCPRDP_PER_PAGE;
-
   try {
     // callFilter: 'Y' = 콜된 종목만, 'N' = 미콜 종목만(기본), 'ALL' = 전체
+    // 전 종목 한 페이지 출력 (페이지네이션 제거)
     const data = await sql<Strucprdp>`
       SELECT *
       FROM strucprdp
@@ -519,7 +518,6 @@ export async function fetchFilteredStrucprdp(
         )
         AND fnd_cd = '10206020'
       ORDER BY no ASC
-      LIMIT ${STRUCPRDP_PER_PAGE} OFFSET ${offset}
     `;
 
     return data.rows;

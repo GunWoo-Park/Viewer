@@ -1,7 +1,6 @@
 import { Suspense } from 'react';
 import { Metadata } from 'next';
 import Search from '@/app/ui/search';
-import Pagination from '@/app/ui/invoices/pagination';
 import CallFilter from '@/app/ui/strucprdm/call-filter';
 import SummaryCards from '@/app/ui/strucprdm/summary-cards';
 import DistributionCharts from '@/app/ui/strucprdm/distribution-charts';
@@ -11,7 +10,7 @@ import {
   DistributionChartsSkeleton,
   TableSkeleton,
 } from '@/app/ui/strucprdm/skeletons';
-import { fetchStrucprdpSummary, fetchStrucprdpPages, fetchLatestAccintRates } from '@/app/lib/data';
+import { fetchStrucprdpSummary, fetchLatestAccintRates } from '@/app/lib/data';
 
 export const metadata: Metadata = {
   title: '구조화 상품',
@@ -22,20 +21,18 @@ export default async function StrucprdmPage({
 }: {
   searchParams?: {
     query?: string;
-    page?: string;
     callFilter?: string;
   };
 }) {
   const query = searchParams?.query || '';
-  const currentPage = Number(searchParams?.page) || 1;
   const callFilter = searchParams?.callFilter || 'N';
 
   return (
     <div className="w-full">
       {/* 페이지 헤더 */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">구조화 상품 현황</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">구조화 상품 현황</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           FICC 구조화 상품 포트폴리오 대시보드 — 상품 구조, 거래상대방, 유형별 분포를 한눈에 확인할 수 있습니다.
         </p>
       </div>
@@ -54,19 +51,14 @@ export default async function StrucprdmPage({
 
       {/* 상품 목록 */}
       <div className="mt-8">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">상품 목록</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">상품 목록</h2>
         <div className="flex items-center justify-between gap-2">
           <Search placeholder="상품코드, 거래상대방, 유형, 통화로 검색..." />
           <CallFilter />
         </div>
-        <Suspense key={query + currentPage + callFilter} fallback={<TableSkeleton />}>
-          <StrucprdmTableWrapper query={query} currentPage={currentPage} callFilter={callFilter} />
+        <Suspense key={query + callFilter} fallback={<TableSkeleton />}>
+          <StrucprdmTableWrapper query={query} callFilter={callFilter} />
         </Suspense>
-        <div className="mt-5 flex w-full justify-center">
-          <Suspense fallback={null}>
-            <PaginationWrapper query={query} callFilter={callFilter} />
-          </Suspense>
-        </div>
       </div>
     </div>
   );
@@ -97,11 +89,9 @@ async function DistributionChartsWrapper() {
 // 테이블 서버 컴포넌트 래퍼 (환율 + 쿠폰/펀딩 금리 전달)
 async function StrucprdmTableWrapper({
   query,
-  currentPage,
   callFilter,
 }: {
   query: string;
-  currentPage: number;
   callFilter: string;
 }) {
   const [summary, accintRates] = await Promise.all([
@@ -112,22 +102,10 @@ async function StrucprdmTableWrapper({
   return (
     <StrucprdmTable
       query={query}
-      currentPage={currentPage}
+      currentPage={1}
       callFilter={callFilter}
       usdKrwRate={usdKrwRate}
       accintRates={accintRates}
     />
   );
-}
-
-// 페이지네이션 서버 컴포넌트 래퍼
-async function PaginationWrapper({
-  query,
-  callFilter,
-}: {
-  query: string;
-  callFilter: string;
-}) {
-  const totalPages = await fetchStrucprdpPages(query, callFilter);
-  return <Pagination totalPages={totalPages} />;
 }

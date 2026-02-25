@@ -47,13 +47,13 @@ function NotionalDisplay({
 
 // 수수료(UPFRNT) 포맷: bp 단위는 그대로, 금액은 원화 기준 포맷
 function formatUpfrnt(upfrnt: string): { text: string; color: string } {
-  if (!upfrnt || upfrnt.trim() === '') return { text: '-', color: 'text-gray-300' };
+  if (!upfrnt || upfrnt.trim() === '') return { text: '-', color: 'text-gray-400 dark:text-gray-500' };
 
   const val = upfrnt.trim();
 
   // bp 단위 (예: +100bp, +70bp)
   if (val.toLowerCase().endsWith('bp')) {
-    return { text: val, color: 'text-indigo-600' };
+    return { text: val, color: 'text-indigo-600 dark:text-indigo-400' };
   }
 
   // 금액 단위 (숫자) — 수수료는 모두 원화 기준
@@ -73,12 +73,12 @@ function formatUpfrnt(upfrnt: string): { text: string; color: string } {
     formatted = `₩${formatted}`;
 
     const sign = isNegative ? '−' : '+';
-    const color = isNegative ? 'text-rose-600' : 'text-emerald-600';
+    const color = isNegative ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400';
     return { text: `${sign}${formatted}`, color };
   }
 
   // 기타: 그대로 표시
-  return { text: val, color: 'text-gray-600' };
+  return { text: val, color: 'text-gray-600 dark:text-gray-400' };
 }
 
 // type1~type4를 통합하여 구조 유형 문자열 생성 (백슬래시 → ₩ 치환)
@@ -235,7 +235,7 @@ export default async function StrucprdpTable({
                 <td className="px-3 py-3 whitespace-nowrap font-mono text-xs font-medium text-blue-700 dark:text-blue-400">
                   {p.obj_cd}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap max-w-[180px] truncate" title={p.cntr_nm}>
+                <td className="px-3 py-3 whitespace-nowrap max-w-[180px] truncate text-gray-700 dark:text-gray-300" title={p.cntr_nm}>
                   {p.cntr_nm}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap">
@@ -256,7 +256,7 @@ export default async function StrucprdpTable({
                     return <span className={color}>{text}</span>;
                   })()}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-center">
+                <td className="px-3 py-3 whitespace-nowrap text-center text-gray-700 dark:text-gray-300">
                   {p.mat_prd}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-gray-500 dark:text-gray-400">
@@ -272,7 +272,7 @@ export default async function StrucprdpTable({
                   {p.call_yn === 'Y' ? (
                     <span className="inline-flex items-center rounded-full bg-orange-100 dark:bg-orange-900/40 px-2 py-0.5 text-xs text-orange-700 dark:text-orange-400">Y</span>
                   ) : (
-                    <span className="text-gray-300">-</span>
+                    <span className="text-gray-400 dark:text-gray-500">-</span>
                   )}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-center">

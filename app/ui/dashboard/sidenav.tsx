@@ -10,12 +10,10 @@ export default function SideNav() {
     <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 px-4 py-2">
       {/* 로고 */}
       <Link
-        className="flex h-10 items-center rounded-md bg-blue-600 px-3 mr-2"
+        className="flex items-center mr-4"
         href="/"
       >
-        <div className="w-24 text-white">
-          <AcmeLogo />
-        </div>
+        <AcmeLogo />
       </Link>
 
       {/* 네비게이션 링크 */}
