@@ -580,6 +580,7 @@ export async function fetchLatestAccintRates(): Promise<
       SELECT DISTINCT ON (obj_cd, leg_tp)
         obj_cd, leg_tp, rate
       FROM strucfe_accint
+      WHERE eval_mdul_cd = '3'
       ORDER BY obj_cd, leg_tp, std_dt DESC
     `;
 
