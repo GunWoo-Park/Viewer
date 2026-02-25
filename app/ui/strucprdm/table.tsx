@@ -221,11 +221,11 @@ export default async function StrucprdpTable({
               <th className="px-3 py-3 whitespace-nowrap">유효일</th>
               <th className="px-3 py-3 whitespace-nowrap">만기일</th>
               <th className="px-3 py-3 whitespace-nowrap">구조 유형</th>
-              <th className="px-3 py-3 whitespace-nowrap">Call 여부</th>
-              <th className="px-3 py-3 whitespace-nowrap text-center">Carry Rate</th>
-              <th className="px-3 py-3 whitespace-nowrap text-center">Pay Rate</th>
+              <th className="px-2 py-3 text-center"><div className="leading-tight">Call<br/>여부</div></th>
+              <th className="px-2 py-3 text-center"><div className="leading-tight">Carry<br/>Rate</div></th>
+              <th className="px-2 py-3 text-center"><div className="leading-tight">Pay<br/>Rate</div></th>
               <th className="px-3 py-3">Pay 구조</th>
-              <th className="px-3 py-3 whitespace-nowrap text-center">Rcv Rate</th>
+              <th className="px-2 py-3 text-center"><div className="leading-tight">Rcv<br/>Rate</div></th>
               <th className="px-3 py-3">Rcv 구조</th>
             </tr>
           </thead>
