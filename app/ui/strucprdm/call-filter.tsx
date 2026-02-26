@@ -34,7 +34,7 @@ export default function CallFilter() {
     <div className="flex items-center gap-2">
       <label
         htmlFor="call-filter"
-        className="text-sm font-medium text-gray-600 whitespace-nowrap"
+        className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap"
       >
         Call 여부
       </label>
@@ -42,7 +42,7 @@ export default function CallFilter() {
         id="call-filter"
         value={currentFilter}
         onChange={(e) => handleChange(e.target.value)}
-        className="rounded-md border border-gray-200 py-[9px] px-3 text-sm outline-2 bg-white cursor-pointer"
+        className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 py-[9px] px-3 text-sm outline-2 cursor-pointer"
       >
         <option value="N">Alive</option>
         <option value="Y">Dead</option>
