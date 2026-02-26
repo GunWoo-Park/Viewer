@@ -10,7 +10,7 @@ import {
   DistributionChartsSkeleton,
   TableSkeleton,
 } from '@/app/ui/strucprdm/skeletons';
-import { fetchStrucprdpSummary, fetchLatestAccintRates } from '@/app/lib/data';
+import { fetchStrucprdpSummary, fetchLatestAccintRates, fetchWeightedAvgCarry } from '@/app/lib/data';
 
 export const metadata: Metadata = {
   title: '구조화 상품',
@@ -66,7 +66,10 @@ export default async function StrucprdmPage({
 
 // 요약 카드 서버 컴포넌트 래퍼
 async function SummaryCardsWrapper() {
-  const summary = await fetchStrucprdpSummary();
+  const [summary, carryData] = await Promise.all([
+    fetchStrucprdpSummary(),
+    fetchWeightedAvgCarry(),
+  ]);
   if (!summary) {
     return (
       <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-4">
@@ -76,7 +79,7 @@ async function SummaryCardsWrapper() {
       </div>
     );
   }
-  return <SummaryCards summary={summary} />;
+  return <SummaryCards summary={summary} carryData={carryData} />;
 }
 
 // 분포 차트 서버 컴포넌트 래퍼

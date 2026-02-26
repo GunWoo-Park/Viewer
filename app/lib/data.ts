@@ -604,6 +604,91 @@ export async function fetchLatestAccintRates(): Promise<
   }
 }
 
+// 노셔널 가중 평균 캐리 (원화/외화/전체)
+export async function fetchWeightedAvgCarry(): Promise<{
+  krwAvgCarry: number | null;
+  usdAvgCarry: number | null;
+  totalAvgCarry: number | null;
+  krwTotalNotional: number;
+  usdTotalNotional: number;
+}> {
+  noStore();
+
+  try {
+    // 자산 + Alive 종목의 노셔널과 최신 coupon/fund rate를 조인
+    const data = await sql`
+      WITH latest_rates AS (
+        SELECT DISTINCT ON (obj_cd, leg_tp)
+          obj_cd, leg_tp, rate
+        FROM strucfe_accint
+        WHERE eval_mdul_cd = '3'
+        ORDER BY obj_cd, leg_tp, std_dt DESC
+      ),
+      carry AS (
+        SELECT
+          p.obj_cd,
+          p.curr,
+          p.notn,
+          c.rate AS coupon_rate,
+          f.rate AS fund_rate,
+          (c.rate - f.rate) AS carry_rate
+        FROM strucprdp p
+        JOIN latest_rates c ON c.obj_cd = p.obj_cd AND c.leg_tp = 'Coupon'
+        JOIN latest_rates f ON f.obj_cd = p.obj_cd AND f.leg_tp = 'Fund'
+        WHERE p.asst_lblt = '자산'
+          AND (p.call_yn = 'N' OR p.call_yn IS NULL)
+          AND p.fnd_cd = '10206020'
+      )
+      SELECT
+        curr,
+        SUM(notn * carry_rate) AS weighted_carry,
+        SUM(notn) AS total_notional,
+        COUNT(*) AS cnt
+      FROM carry
+      GROUP BY curr
+    `;
+
+    // USD/KRW 환율 조회 (전체 가중평균 계산용)
+    const fxResult = await sql`
+      SELECT close_value FROM tb_macro_index
+      WHERE ticker = 'USD/KRW' AND asset_class = 'FX'
+      ORDER BY base_date DESC LIMIT 1
+    `;
+    const usdKrwRate = fxResult.rows.length > 0
+      ? Number(fxResult.rows[0].close_value) : 1450;
+
+    let krwWeighted = 0, krwNotional = 0;
+    let usdWeighted = 0, usdNotional = 0;
+
+    for (const row of data.rows) {
+      if (row.curr === 'KRW') {
+        krwWeighted = Number(row.weighted_carry);
+        krwNotional = Number(row.total_notional);
+      } else if (row.curr === 'USD') {
+        usdWeighted = Number(row.weighted_carry);
+        usdNotional = Number(row.total_notional);
+      }
+    }
+
+    // 전체 평균: USD 노셔널을 원화로 환산하여 가중평균
+    const usdNotionalInKrw = usdNotional * usdKrwRate;
+    const usdWeightedInKrw = usdWeighted * usdKrwRate;
+    const totalWeighted = krwWeighted + usdWeightedInKrw;
+    const totalNotional = krwNotional + usdNotionalInKrw;
+
+    return {
+      krwAvgCarry: krwNotional > 0 ? krwWeighted / krwNotional : null,
+      usdAvgCarry: usdNotional > 0 ? usdWeighted / usdNotional : null,
+      totalAvgCarry: totalNotional > 0 ? totalWeighted / totalNotional : null,
+      krwTotalNotional: krwNotional,
+      usdTotalNotional: usdNotional,
+    };
+  } catch (error) {
+    console.error('Database Error:', error);
+    return { krwAvgCarry: null, usdAvgCarry: null, totalAvgCarry: null, krwTotalNotional: 0, usdTotalNotional: 0 };
+  }
+}
+
 export async function fetchStrucprdpById(objCd: string): Promise<Strucprdp | null> {
   noStore();
 
