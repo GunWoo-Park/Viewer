@@ -604,88 +604,204 @@ export async function fetchLatestAccintRates(): Promise<
   }
 }
 
-// 노셔널 가중 평균 캐리 (원화/외화/전체)
-export async function fetchWeightedAvgCarry(): Promise<{
-  krwAvgCarry: number | null;
-  usdAvgCarry: number | null;
-  totalAvgCarry: number | null;
-  krwTotalNotional: number;
-  usdTotalNotional: number;
-}> {
+// 통화별 자산-MTM-캐리 집계 타입
+export type CurrencyCarrySummary = {
+  curr: string;
+  count: number;
+  totalNotional: number;  // 원화: 원, USD: 달러
+  totalMtm: number;       // 항상 원화(KRW)
+  avgCarry: number | null; // 소수 (예: 0.0234 = 2.34%)
+};
+
+export type CarryAggregation = {
+  byCurrency: CurrencyCarrySummary[];
+  totalNotionalKrw: number;  // USD 환산 포함 전체 노셔널 (원화)
+  totalMtm: number;          // 전체 MTM (원화)
+  totalAvgCarry: number | null; // 전체 가중평균 캐리
+  usdKrwRate: number;
+};
+
+// 노셔널 가중 평균 캐리 + 자산/MTM 집계 (원화/외화/전체)
+export async function fetchWeightedAvgCarry(): Promise<CarryAggregation> {
   noStore();
 
+  const emptyResult: CarryAggregation = {
+    byCurrency: [],
+    totalNotionalKrw: 0,
+    totalMtm: 0,
+    totalAvgCarry: null,
+    usdKrwRate: 1450,
+  };
+
   try {
-    // 자산 + Alive 종목의 노셔널과 최신 coupon/fund rate를 조인
-    const data = await sql`
-      WITH latest_rates AS (
-        SELECT DISTINCT ON (obj_cd, leg_tp)
-          obj_cd, leg_tp, rate
-        FROM strucfe_accint
-        WHERE eval_mdul_cd = '3'
-        ORDER BY obj_cd, leg_tp, std_dt DESC
-      ),
-      carry AS (
+    // 자산 종목별 노셔널, MTM(avg_prc), 캐리를 조인
+    const [data, fxResult] = await Promise.all([
+      sql`
+        WITH latest_swap AS (
+          SELECT DISTINCT ON (obj_cd)
+            obj_cd, avg_prc
+          FROM swap_prc
+          WHERE fnd_cd = '10206020'
+          ORDER BY obj_cd, std_dt DESC
+        ),
+        latest_rates AS (
+          SELECT DISTINCT ON (obj_cd, leg_tp)
+            obj_cd, leg_tp, rate
+          FROM strucfe_accint
+          WHERE eval_mdul_cd = '3'
+          ORDER BY obj_cd, leg_tp, std_dt DESC
+        )
         SELECT
-          p.obj_cd,
           p.curr,
-          p.notn,
-          c.rate AS coupon_rate,
-          f.rate AS fund_rate,
-          (c.rate - f.rate) AS carry_rate
+          COUNT(*) AS cnt,
+          SUM(p.notn) AS total_notional,
+          SUM(s.avg_prc) AS total_mtm,
+          SUM(p.notn * (COALESCE(c.rate, 0) - COALESCE(f.rate, 0))) AS weighted_carry
         FROM strucprdp p
-        JOIN latest_rates c ON c.obj_cd = p.obj_cd AND c.leg_tp = 'Coupon'
-        JOIN latest_rates f ON f.obj_cd = p.obj_cd AND f.leg_tp = 'Fund'
+        LEFT JOIN latest_swap s ON s.obj_cd = p.obj_cd
+        LEFT JOIN latest_rates c ON c.obj_cd = p.obj_cd AND c.leg_tp = 'Coupon'
+        LEFT JOIN latest_rates f ON f.obj_cd = p.obj_cd AND f.leg_tp = 'Fund'
         WHERE p.asst_lblt = '자산'
           AND (p.call_yn = 'N' OR p.call_yn IS NULL)
           AND p.fnd_cd = '10206020'
-      )
-      SELECT
-        curr,
-        SUM(notn * carry_rate) AS weighted_carry,
-        SUM(notn) AS total_notional,
-        COUNT(*) AS cnt
-      FROM carry
-      GROUP BY curr
-    `;
+        GROUP BY p.curr
+        ORDER BY p.curr
+      `,
+      // USD/KRW 환율
+      sql`
+        SELECT close_value FROM tb_macro_index
+        WHERE ticker = 'USD/KRW' AND asset_class = 'FX'
+        ORDER BY base_date DESC LIMIT 1
+      `,
+    ]);
 
-    // USD/KRW 환율 조회 (전체 가중평균 계산용)
-    const fxResult = await sql`
-      SELECT close_value FROM tb_macro_index
-      WHERE ticker = 'USD/KRW' AND asset_class = 'FX'
-      ORDER BY base_date DESC LIMIT 1
-    `;
     const usdKrwRate = fxResult.rows.length > 0
       ? Number(fxResult.rows[0].close_value) : 1450;
 
-    let krwWeighted = 0, krwNotional = 0;
-    let usdWeighted = 0, usdNotional = 0;
+    const byCurrency: CurrencyCarrySummary[] = [];
+    let totalNotionalKrw = 0;
+    let totalMtm = 0;
+    let totalWeightedCarryKrw = 0;
 
     for (const row of data.rows) {
-      if (row.curr === 'KRW') {
-        krwWeighted = Number(row.weighted_carry);
-        krwNotional = Number(row.total_notional);
-      } else if (row.curr === 'USD') {
-        usdWeighted = Number(row.weighted_carry);
-        usdNotional = Number(row.total_notional);
+      const curr = row.curr as string;
+      const count = Number(row.cnt);
+      const notional = Number(row.total_notional);
+      const mtm = Number(row.total_mtm) || 0;
+      const weightedCarry = Number(row.weighted_carry) || 0;
+      const avgCarry = notional > 0 ? weightedCarry / notional : null;
+
+      byCurrency.push({ curr, count, totalNotional: notional, totalMtm: mtm, avgCarry });
+
+      // 전체 합산 (원화 기준)
+      // MTM은 이미 원화 (USD 종목도 swap_prc에서 원화 환산)
+      totalMtm += mtm;
+      if (curr === 'KRW') {
+        totalNotionalKrw += notional;
+        totalWeightedCarryKrw += weightedCarry;
+      } else if (curr === 'USD') {
+        totalNotionalKrw += notional * usdKrwRate;
+        totalWeightedCarryKrw += weightedCarry * usdKrwRate;
       }
     }
 
-    // 전체 평균: USD 노셔널을 원화로 환산하여 가중평균
-    const usdNotionalInKrw = usdNotional * usdKrwRate;
-    const usdWeightedInKrw = usdWeighted * usdKrwRate;
-    const totalWeighted = krwWeighted + usdWeightedInKrw;
-    const totalNotional = krwNotional + usdNotionalInKrw;
+    const totalAvgCarry = totalNotionalKrw > 0
+      ? totalWeightedCarryKrw / totalNotionalKrw : null;
 
-    return {
-      krwAvgCarry: krwNotional > 0 ? krwWeighted / krwNotional : null,
-      usdAvgCarry: usdNotional > 0 ? usdWeighted / usdNotional : null,
-      totalAvgCarry: totalNotional > 0 ? totalWeighted / totalNotional : null,
-      krwTotalNotional: krwNotional,
-      usdTotalNotional: usdNotional,
-    };
+    return { byCurrency, totalNotionalKrw, totalMtm, totalAvgCarry, usdKrwRate };
   } catch (error) {
     console.error('Database Error:', error);
-    return { krwAvgCarry: null, usdAvgCarry: null, totalAvgCarry: null, krwTotalNotional: 0, usdTotalNotional: 0 };
+    return emptyResult;
+  }
+}
+
+// 자산→MTM→캐리 full set 기준 통화별 집계
+export type TpSetRow = {
+  curr: string;
+  assetCount: number;      // 자산 건수
+  assetNotional: number;   // 자산 노셔널 (KRW→원, USD→달러)
+  totalMtm: number;        // 자산+MTM+캐리 전체 MTM 합계 (원화)
+  avgCarry: number | null; // 자산 기준 가중평균 캐리
+};
+
+export type TpAggregation = {
+  rows: TpSetRow[];
+  usdKrwRate: number;
+};
+
+export async function fetchTpAggregation(): Promise<TpAggregation> {
+  noStore();
+
+  try {
+    const [data, fxResult] = await Promise.all([
+      sql`
+        WITH full_sets AS (
+          SELECT eff_dt, curr
+          FROM strucprdp
+          WHERE fnd_cd = '10206020'
+            AND tp IN ('자산','MTM','캐리')
+            AND (call_yn = 'N' OR call_yn IS NULL)
+          GROUP BY eff_dt, curr
+          HAVING COUNT(DISTINCT tp) FILTER (WHERE tp IN ('자산','MTM','캐리')) = 3
+        ),
+        latest_rates AS (
+          SELECT DISTINCT ON (obj_cd, leg_tp)
+            obj_cd, leg_tp, rate
+          FROM strucfe_accint
+          WHERE eval_mdul_cd = '3'
+          ORDER BY obj_cd, leg_tp, std_dt DESC
+        ),
+        latest_swap AS (
+          SELECT DISTINCT ON (obj_cd)
+            obj_cd, avg_prc
+          FROM swap_prc
+          WHERE fnd_cd = '10206020'
+          ORDER BY obj_cd, std_dt DESC
+        )
+        SELECT
+          p.curr,
+          COUNT(*) FILTER (WHERE p.tp = '자산') AS asset_cnt,
+          SUM(p.notn) FILTER (WHERE p.tp = '자산') AS asset_notn,
+          SUM(COALESCE(s.avg_prc, 0)) AS total_mtm,
+          CASE WHEN SUM(p.notn) FILTER (WHERE p.tp = '자산') > 0
+            THEN SUM(p.notn * (COALESCE(c.rate, 0) - COALESCE(f.rate, 0)))
+                 FILTER (WHERE p.tp = '자산')
+                 / SUM(p.notn) FILTER (WHERE p.tp = '자산')
+            ELSE NULL
+          END AS avg_carry
+        FROM strucprdp p
+        INNER JOIN full_sets fs ON fs.eff_dt = p.eff_dt AND fs.curr = p.curr
+        LEFT JOIN latest_rates c ON c.obj_cd = p.obj_cd AND c.leg_tp = 'Coupon'
+        LEFT JOIN latest_rates f ON f.obj_cd = p.obj_cd AND f.leg_tp = 'Fund'
+        LEFT JOIN latest_swap s ON s.obj_cd = p.obj_cd
+        WHERE p.fnd_cd = '10206020'
+          AND p.tp IN ('자산','MTM','캐리')
+          AND (p.call_yn = 'N' OR p.call_yn IS NULL)
+        GROUP BY p.curr
+        ORDER BY p.curr
+      `,
+      sql`
+        SELECT close_value FROM tb_macro_index
+        WHERE ticker = 'USD/KRW' AND asset_class = 'FX'
+        ORDER BY base_date DESC LIMIT 1
+      `,
+    ]);
+
+    const usdKrwRate = fxResult.rows.length > 0
+      ? Number(fxResult.rows[0].close_value) : 1450;
+
+    const rows: TpSetRow[] = data.rows.map((row) => ({
+      curr: row.curr as string,
+      assetCount: Number(row.asset_cnt),
+      assetNotional: Number(row.asset_notn),
+      totalMtm: Number(row.total_mtm) || 0,
+      avgCarry: row.avg_carry != null ? Number(row.avg_carry) : null,
+    }));
+
+    return { rows, usdKrwRate };
+  } catch (error) {
+    console.error('Database Error:', error);
+    return { rows: [], usdKrwRate: 1450 };
   }
 }
 

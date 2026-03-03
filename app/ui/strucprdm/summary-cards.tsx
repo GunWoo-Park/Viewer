@@ -3,8 +3,10 @@ import {
   CurrencyDollarIcon,
   ChartBarIcon,
   ArrowTrendingUpIcon,
+  TableCellsIcon,
 } from '@heroicons/react/24/outline';
 import { StrucprdpSummary } from '@/app/lib/definitions';
+import { CarryAggregation, TpAggregation } from '@/app/lib/data';
 
 // 숫자 포맷 유틸리티
 function formatKRW(amount: number): string {
@@ -17,7 +19,6 @@ function formatUSD(amount: number): string {
   return `$${millions.toLocaleString('en-US', { maximumFractionDigits: 1 })}M`;
 }
 
-// 캐리 포맷: 소수 → bp 또는 % 표시
 function formatCarryPct(rate: number | null): string {
   if (rate == null) return '-';
   return `${(rate * 100).toFixed(2)}%`;
@@ -28,13 +29,22 @@ function formatCarryBp(rate: number | null): string {
   return `${(rate * 10000).toFixed(1)}bp`;
 }
 
-type CarryData = {
-  krwAvgCarry: number | null;
-  usdAvgCarry: number | null;
-  totalAvgCarry: number | null;
-  krwTotalNotional: number;
-  usdTotalNotional: number;
-};
+function carryColor(v: number | null): string {
+  if (v != null && v > 0) return 'text-emerald-600 dark:text-emerald-400';
+  if (v != null && v < 0) return 'text-rose-600 dark:text-rose-400';
+  return 'text-gray-500 dark:text-gray-400';
+}
+
+function mtmColorFn(v: number): string {
+  if (v > 0) return 'text-emerald-600 dark:text-emerald-400';
+  if (v < 0) return 'text-rose-600 dark:text-rose-400';
+  return 'text-gray-500 dark:text-gray-400';
+}
+
+function fmtMtm(v: number): string {
+  const b = v / 100000000;
+  return `${b >= 0 ? '+' : ''}${b.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
+}
 
 function SummaryCard({
   title,
@@ -72,12 +82,15 @@ function SummaryCard({
   );
 }
 
-// 평균 캐리 카드 (원화/외화/전체를 하나의 카드에 표시)
-function CarryCard({ carryData }: { carryData: CarryData }) {
+// 평균 캐리 카드 (자산 기준 원화/외화/전체)
+function CarryCard({ data }: { data: CarryAggregation }) {
+  const krw = data.byCurrency.find((c) => c.curr === 'KRW');
+  const usd = data.byCurrency.find((c) => c.curr === 'USD');
+
   const items = [
-    { label: '전체', carry: carryData.totalAvgCarry },
-    { label: 'KRW', carry: carryData.krwAvgCarry },
-    { label: 'USD', carry: carryData.usdAvgCarry },
+    { label: '전체', carry: data.totalAvgCarry },
+    { label: 'KRW', carry: krw?.avgCarry ?? null },
+    { label: 'USD', carry: usd?.avgCarry ?? null },
   ];
 
   return (
@@ -89,24 +102,158 @@ function CarryCard({ carryData }: { carryData: CarryData }) {
         <p className="text-sm text-gray-500 dark:text-gray-400">평균 Carry Rate (노셔널 가중)</p>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-3">
-        {items.map(({ label, carry }) => {
-          const color = carry != null && carry > 0
-            ? 'text-emerald-600 dark:text-emerald-400'
-            : carry != null && carry < 0
-              ? 'text-rose-600 dark:text-rose-400'
-              : 'text-gray-500 dark:text-gray-400';
-          return (
-            <div key={label} className="text-center">
-              <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">{label}</p>
-              <p className={`text-lg font-bold font-mono ${color}`}>
-                {formatCarryPct(carry)}
-              </p>
-              <p className={`text-xs font-mono ${color}`}>
-                {formatCarryBp(carry)}
-              </p>
-            </div>
-          );
-        })}
+        {items.map(({ label, carry }) => (
+          <div key={label} className="text-center">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">{label}</p>
+            <p className={`text-lg font-bold font-mono ${carryColor(carry)}`}>
+              {formatCarryPct(carry)}
+            </p>
+            <p className={`text-xs font-mono ${carryColor(carry)}`}>
+              {formatCarryBp(carry)}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// 자산→MTM→캐리 full set 집계 카드
+function TpAggregationCard({ data }: { data: TpAggregation }) {
+  const krw = data.rows.find((r) => r.curr === 'KRW');
+  const usd = data.rows.find((r) => r.curr === 'USD');
+
+  // 전체 합산 (USD → 원화 환산)
+  const totalAssetCount = (krw?.assetCount || 0) + (usd?.assetCount || 0);
+  const totalNotnKrw =
+    (krw?.assetNotional || 0) + (usd?.assetNotional || 0) * data.usdKrwRate;
+  const totalMtm = (krw?.totalMtm || 0) + (usd?.totalMtm || 0);
+
+  // 전체 가중평균 캐리
+  const krwWc = krw && krw.avgCarry != null ? krw.assetNotional * krw.avgCarry : 0;
+  const usdWcKrw =
+    usd && usd.avgCarry != null ? usd.assetNotional * data.usdKrwRate * usd.avgCarry : 0;
+  const totalAvgCarry = totalNotnKrw > 0 ? (krwWc + usdWcKrw) / totalNotnKrw : null;
+
+  type RowData = {
+    label: string;
+    badge?: string;
+    badgeColor?: string;
+    count: number;
+    notional: string;
+    notionalSub?: string;
+    mtm: number;
+    carry: number | null;
+    isBold?: boolean;
+  };
+
+  const rows: RowData[] = [];
+
+  if (krw) {
+    rows.push({
+      label: 'KRW',
+      badge: 'KRW',
+      badgeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+      count: krw.assetCount,
+      notional: formatKRW(krw.assetNotional),
+      mtm: krw.totalMtm,
+      carry: krw.avgCarry,
+    });
+  }
+
+  if (usd) {
+    rows.push({
+      label: 'USD',
+      badge: 'USD',
+      badgeColor: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
+      count: usd.assetCount,
+      notional: formatUSD(usd.assetNotional),
+      notionalSub: formatKRW(usd.assetNotional * data.usdKrwRate),
+      mtm: usd.totalMtm,
+      carry: usd.avgCarry,
+    });
+  }
+
+  rows.push({
+    label: '합계',
+    count: totalAssetCount,
+    notional: formatKRW(totalNotnKrw),
+    mtm: totalMtm,
+    carry: totalAvgCarry,
+    isBold: true,
+  });
+
+  return (
+    <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow-sm col-span-1 sm:col-span-2 lg:col-span-4">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="rounded-lg p-2 bg-cyan-600">
+          <TableCellsIcon className="w-5 h-5 text-white" />
+        </div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          자산→MTM→캐리 매칭 집계
+          <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
+            (자산 노셔널 기준, MTM은 set 합산)
+          </span>
+        </p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
+              <th className="py-1.5 text-left font-medium px-2">통화</th>
+              <th className="py-1.5 text-right font-medium px-2">자산 건수</th>
+              <th className="py-1.5 text-right font-medium px-2">자산 노셔널</th>
+              <th className="py-1.5 text-right font-medium px-2">MTM (set 합)</th>
+              <th className="py-1.5 text-right font-medium px-2">평균 Carry</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const rowCls = row.isBold
+                ? 'border-t-2 border-gray-300 dark:border-gray-600 font-semibold'
+                : 'border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50';
+
+              return (
+                <tr key={row.label} className={rowCls}>
+                  <td className="py-2 px-2 text-left">
+                    {row.badge ? (
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${row.badgeColor}`}>
+                        {row.badge}
+                      </span>
+                    ) : (
+                      <span className="text-gray-700 dark:text-gray-200 font-medium">{row.label}</span>
+                    )}
+                  </td>
+                  <td className="py-2 px-2 text-right text-gray-600 dark:text-gray-300 font-mono">
+                    {row.count}
+                  </td>
+                  <td className="py-2 px-2 text-right">
+                    <span className="text-gray-700 dark:text-gray-200 font-mono">
+                      {row.notional}
+                    </span>
+                    {row.notionalSub && (
+                      <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
+                        ({row.notionalSub})
+                      </span>
+                    )}
+                  </td>
+                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.mtm)}`}>
+                    {fmtMtm(row.mtm)}
+                  </td>
+                  <td className="py-2 px-2 text-right">
+                    <span className={`font-mono font-bold ${carryColor(row.carry)}`}>
+                      {formatCarryPct(row.carry)}
+                    </span>
+                    <span className={`ml-1 text-xs font-mono ${carryColor(row.carry)}`}>
+                      {formatCarryBp(row.carry)}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -115,11 +262,12 @@ function CarryCard({ carryData }: { carryData: CarryData }) {
 export default function SummaryCards({
   summary,
   carryData,
+  tpData,
 }: {
   summary: StrucprdpSummary;
-  carryData?: CarryData;
+  carryData?: CarryAggregation;
+  tpData?: TpAggregation;
 }) {
-  // USD 자산을 원화로 환산
   const usdInKrw = summary.usdAssetNotional * summary.usdKrwRate;
   const rateDisplay = summary.usdKrwRate.toLocaleString('ko-KR', {
     maximumFractionDigits: 1,
@@ -149,7 +297,11 @@ export default function SummaryCards({
         icon={CurrencyDollarIcon}
         color="bg-violet-500"
       />
-      {carryData && <CarryCard carryData={carryData} />}
+      {/* 평균 캐리 카드 (자산 기준) */}
+      {carryData && <CarryCard data={carryData} />}
+
+      {/* 자산→MTM→캐리 full set 집계 (4칸 차지) */}
+      {tpData && tpData.rows.length > 0 && <TpAggregationCard data={tpData} />}
     </div>
   );
 }
