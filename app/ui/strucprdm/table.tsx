@@ -1,5 +1,4 @@
 import { Strucprdp } from '@/app/lib/definitions';
-import { fetchFilteredStrucprdp } from '@/app/lib/data';
 import StructCondTooltip from './struct-cond-tooltip';
 
 // 날짜 포맷: YYYYMMDD → YYYY-MM-DD
@@ -115,20 +114,17 @@ function RateCell({
   );
 }
 
-export default async function StrucprdpTable({
-  query,
-  currentPage,
-  callFilter = 'N',
+export default function StrucprdpTable({
+  products,
   usdKrwRate = 1450,
   accintRates = {},
+  onRowClick,
 }: {
-  query: string;
-  currentPage: number;
-  callFilter?: string;
+  products: Strucprdp[];
   usdKrwRate?: number;
   accintRates?: Record<string, { couponRate: number | null; fundRate: number | null }>;
+  onRowClick?: (eff_dt: string, curr: string) => void;
 }) {
-  const products = await fetchFilteredStrucprdp(query, currentPage, callFilter);
 
   return (
     <div className="mt-6 flow-root">
@@ -137,7 +133,8 @@ export default async function StrucprdpTable({
         {products.map((p) => (
           <div
             key={p.obj_cd}
-            className="mb-3 rounded-lg bg-white dark:bg-gray-800 p-4 shadow-sm"
+            className={`mb-3 rounded-lg bg-white dark:bg-gray-800 p-4 shadow-sm ${onRowClick ? 'cursor-pointer' : ''}`}
+            onClick={() => onRowClick?.(p.eff_dt, p.curr)}
           >
             <div className="flex items-center justify-between border-b dark:border-gray-700 pb-3">
               <div>
@@ -231,7 +228,11 @@ export default async function StrucprdpTable({
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-900">
             {products.map((p) => (
-              <tr key={p.obj_cd} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <tr
+                key={p.obj_cd}
+                className={`hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
+                onClick={() => onRowClick?.(p.eff_dt, p.curr)}
+              >
                 <td className="px-3 py-3 whitespace-nowrap font-mono text-xs font-medium text-blue-700 dark:text-blue-400">
                   {p.obj_cd}
                 </td>

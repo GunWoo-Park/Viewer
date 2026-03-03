@@ -4,13 +4,13 @@ import Search from '@/app/ui/search';
 import CallFilter from '@/app/ui/strucprdm/call-filter';
 import SummaryCards from '@/app/ui/strucprdm/summary-cards';
 import DistributionCharts from '@/app/ui/strucprdm/distribution-charts';
-import StrucprdmTable from '@/app/ui/strucprdm/table';
+import ClickableStrucprdpTable from '@/app/ui/strucprdm/clickable-table';
 import {
   SummaryCardsSkeleton,
   DistributionChartsSkeleton,
   TableSkeleton,
 } from '@/app/ui/strucprdm/skeletons';
-import { fetchStrucprdpSummary, fetchLatestAccintRates, fetchWeightedAvgCarry, fetchTpAggregation } from '@/app/lib/data';
+import { fetchStrucprdpSummary, fetchLatestAccintRates, fetchWeightedAvgCarry, fetchTpAggregation, fetchFilteredStrucprdp } from '@/app/lib/data';
 
 export const metadata: Metadata = {
   title: '구조화 상품',
@@ -90,7 +90,7 @@ async function DistributionChartsWrapper() {
   return <DistributionCharts summary={summary} />;
 }
 
-// 테이블 서버 컴포넌트 래퍼 (환율 + 쿠폰/펀딩 금리 전달)
+// 테이블 서버 컴포넌트 래퍼 (환율 + 쿠폰/펀딩 금리 + 종목 데이터 전달)
 async function StrucprdmTableWrapper({
   query,
   callFilter,
@@ -98,16 +98,15 @@ async function StrucprdmTableWrapper({
   query: string;
   callFilter: string;
 }) {
-  const [summary, accintRates] = await Promise.all([
+  const [summary, accintRates, products] = await Promise.all([
     fetchStrucprdpSummary(),
     fetchLatestAccintRates(),
+    fetchFilteredStrucprdp(query, 1, callFilter),
   ]);
   const usdKrwRate = summary?.usdKrwRate ?? 1450;
   return (
-    <StrucprdmTable
-      query={query}
-      currentPage={1}
-      callFilter={callFilter}
+    <ClickableStrucprdpTable
+      products={products}
       usdKrwRate={usdKrwRate}
       accintRates={accintRates}
     />

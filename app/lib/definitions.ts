@@ -192,6 +192,22 @@ export type StrucprdpSummary = {
   }[];
 };
 
+// MTM 시계열 모달용 타입
+export type MTMTimeSeries = {
+  obj_cd: string;
+  tp: string;
+  notn: number;
+  cntr_nm: string;
+  mtm_data: { std_dt: string; avg_prc: number }[];
+};
+
+export type MTMGroupData = {
+  eff_dt: string;
+  curr: string;
+  products: MTMTimeSeries[];
+  combined_mtm: { std_dt: string; avg_prc: number }[];
+};
+
 export type BTBDashboardData = {
   latestDate: string;
   totalBalance: number;
