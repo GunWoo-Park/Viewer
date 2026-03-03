@@ -1,6 +1,60 @@
 // app/dashboard/risk/page.tsx
 import { lusitana } from '@/app/ui/fonts';
 
+// 금액 포맷 헬퍼
+function formatDelta(value: number, format: 'krw' | 'usd'): string {
+  const abs = Math.abs(value);
+  if (format === 'krw') {
+    // 억 단위
+    const eok = abs / 100000000;
+    if (eok >= 1) return `${eok.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
+    // 만 단위
+    const man = abs / 10000;
+    if (man >= 1) return `${man.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+    return abs.toLocaleString('ko-KR');
+  }
+  // USD
+  const millions = abs / 1000000;
+  if (millions >= 1) return `${millions.toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+  const thousands = abs / 1000;
+  if (thousands >= 1) return `${thousands.toLocaleString('en-US', { maximumFractionDigits: 1 })}K`;
+  return abs.toLocaleString('en-US');
+}
+
+// Hedge Net Delta 카드 컴포넌트
+function HedgeDeltaCard({
+  label,
+  value,
+  unit,
+  format,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  format: 'krw' | 'usd';
+}) {
+  const isNeg = value < 0;
+  const sign = isNeg ? '−' : '+';
+  const color = isNeg
+    ? 'text-rose-600 dark:text-rose-400'
+    : 'text-emerald-600 dark:text-emerald-400';
+  const formatted = formatDelta(value, format);
+
+  return (
+    <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+        {label}
+      </p>
+      <p className={`${lusitana.className} mt-2 text-2xl font-bold ${color}`}>
+        {sign}{unit}{formatted}
+      </p>
+      <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+        {sign}{Math.abs(value).toLocaleString()}
+      </p>
+    </div>
+  );
+}
+
 export default function RiskPage() {
   return (
     <main>
@@ -8,48 +62,32 @@ export default function RiskPage() {
         RISK
       </h1>
 
-      {/* 리스크 지표 요약 카드 */}
+      {/* Hedge Net Delta 카드 */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4 shadow-sm">
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-            DV01 (원화)
-          </p>
-          <p
-            className={`${lusitana.className} mt-1 text-2xl font-bold text-gray-700 dark:text-gray-200`}
-          >
-            —
-          </p>
-        </div>
-        <div className="rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4 shadow-sm">
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-            DV01 (외화)
-          </p>
-          <p
-            className={`${lusitana.className} mt-1 text-2xl font-bold text-gray-700 dark:text-gray-200`}
-          >
-            —
-          </p>
-        </div>
-        <div className="rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4 shadow-sm">
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-            VaR (95%)
-          </p>
-          <p
-            className={`${lusitana.className} mt-1 text-2xl font-bold text-gray-700 dark:text-gray-200`}
-          >
-            —
-          </p>
-        </div>
-        <div className="rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4 shadow-sm">
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-            Greeks (Delta)
-          </p>
-          <p
-            className={`${lusitana.className} mt-1 text-2xl font-bold text-gray-700 dark:text-gray-200`}
-          >
-            —
-          </p>
-        </div>
+        <HedgeDeltaCard
+          label="KRW Hedge Net Delta"
+          value={-318069592}
+          unit="₩"
+          format="krw"
+        />
+        <HedgeDeltaCard
+          label="USD Hedge Net Delta"
+          value={-770462}
+          unit="₩"
+          format="krw"
+        />
+        <HedgeDeltaCard
+          label="KTB Hedge Net Delta"
+          value={-1439581653}
+          unit="₩"
+          format="krw"
+        />
+        <HedgeDeltaCard
+          label="UST Hedge Net Delta"
+          value={-85500336}
+          unit="₩"
+          format="krw"
+        />
       </div>
 
       {/* 금리 리스크 섹션 */}
