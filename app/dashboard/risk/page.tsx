@@ -21,51 +21,94 @@ function formatDelta(value: number, format: 'krw' | 'usd'): string {
   return abs.toLocaleString('en-US');
 }
 
-// Hedge Net Delta 카드 컴포넌트
-function HedgeDeltaCard({
-  label,
-  value,
-  unit,
-  format,
-  highlight = false,
-  accent = false,
-}: {
-  label: string;
-  value: number;
-  unit: string;
-  format: 'krw' | 'usd';
-  highlight?: boolean;
-  accent?: boolean;
-}) {
+// 델타값 인라인 행 (그룹 내 개별 항목)
+function DeltaRow({ label, value }: { label: string; value: number }) {
   const isNeg = value < 0;
   const sign = isNeg ? '−' : '+';
   const color = isNeg
     ? 'text-rose-600 dark:text-rose-400'
     : 'text-emerald-600 dark:text-emerald-400';
-  const formatted = formatDelta(value, format);
+  return (
+    <div className="flex items-center justify-between py-2">
+      <span className="text-sm text-gray-600 dark:text-gray-400">{label}</span>
+      <div className="text-right">
+        <span className={`font-mono text-sm font-semibold ${color}`}>
+          {sign}₩{formatDelta(value, 'krw')}
+        </span>
+        <span className="ml-2 font-mono text-[10px] text-gray-400 dark:text-gray-500">
+          {sign}{Math.abs(value).toLocaleString()}
+        </span>
+      </div>
+    </div>
+  );
+}
 
-  // 배경 스타일: accent > highlight > 기본
-  const bg = accent
-    ? 'bg-gray-900 dark:bg-gray-50 border-gray-900 dark:border-gray-50'
-    : highlight
-      ? 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600'
-      : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700';
-  const labelColor = accent
-    ? 'text-gray-300 dark:text-gray-600'
-    : 'text-gray-500 dark:text-gray-400';
-  const subColor = accent
-    ? 'text-gray-400 dark:text-gray-500'
-    : 'text-gray-400 dark:text-gray-500';
+// 통화 그룹 카드 (개별 항목 + 소계)
+function CurrencyGroupCard({
+  currency,
+  items,
+}: {
+  currency: string;
+  items: { label: string; value: number }[];
+}) {
+  const subtotal = items.reduce((s, i) => s + i.value, 0);
+  const isNeg = subtotal < 0;
+  const sign = isNeg ? '−' : '+';
+  const color = isNeg
+    ? 'text-rose-600 dark:text-rose-400'
+    : 'text-emerald-600 dark:text-emerald-400';
+  const badgeColor = currency === 'KRW'
+    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+    : 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300';
 
   return (
-    <div className={`rounded-xl border p-4 shadow-sm ${bg}`}>
-      <p className={`text-xs font-medium uppercase tracking-wide ${labelColor}`}>
-        {label}
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+      {/* 헤더: 통화 뱃지 */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${badgeColor}`}>
+          {currency}
+        </span>
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Hedge Net Delta</span>
+      </div>
+      {/* 개별 항목 */}
+      <div className="divide-y divide-gray-100 dark:divide-gray-800">
+        {items.map((item) => (
+          <DeltaRow key={item.label} label={item.label} value={item.value} />
+        ))}
+      </div>
+      {/* 소계 */}
+      <div className="mt-3 pt-3 border-t-2 border-gray-300 dark:border-gray-600 flex items-center justify-between">
+        <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">소계</span>
+        <div className="text-right">
+          <span className={`${lusitana.className} text-xl font-bold ${color}`}>
+            {sign}₩{formatDelta(subtotal, 'krw')}
+          </span>
+          <p className="font-mono text-[10px] text-gray-400 dark:text-gray-500">
+            {sign}{Math.abs(subtotal).toLocaleString()}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 전체 Net Delta 카드
+function TotalDeltaCard({ value }: { value: number }) {
+  const isNeg = value < 0;
+  const sign = isNeg ? '−' : '+';
+  const color = isNeg
+    ? 'text-rose-500 dark:text-rose-400'
+    : 'text-emerald-500 dark:text-emerald-400';
+
+  return (
+    <div className="rounded-xl bg-gray-900 dark:bg-gray-100 p-5 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+        전체 Net Delta
       </p>
-      <p className={`${lusitana.className} mt-2 text-2xl font-bold ${color}`}>
-        {sign}{unit}{formatted}
+      <p className={`${lusitana.className} mt-2 text-3xl font-bold ${color}`}>
+        {sign}₩{formatDelta(value, 'krw')}
       </p>
-      <p className={`mt-1 text-[10px] font-mono ${subColor}`}>
+      <p className="mt-1 font-mono text-[10px] text-gray-500 dark:text-gray-400">
         {sign}{Math.abs(value).toLocaleString()}
       </p>
     </div>
@@ -79,58 +122,27 @@ export default function RiskPage() {
         RISK
       </h1>
 
-      {/* Hedge Net Delta 개별 카드 */}
-      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <HedgeDeltaCard
-          label="KRW Hedge Net Delta"
-          value={-318069592}
-          unit="₩"
-          format="krw"
+      {/* Hedge Net Delta — 통화 그룹별 */}
+      <div className="mb-4 grid gap-4 lg:grid-cols-2">
+        <CurrencyGroupCard
+          currency="KRW"
+          items={[
+            { label: 'KRW Hedge', value: -318069592 },
+            { label: 'KTB Hedge', value: -1439581653 },
+          ]}
         />
-        <HedgeDeltaCard
-          label="USD Hedge Net Delta"
-          value={-770462}
-          unit="₩"
-          format="krw"
-        />
-        <HedgeDeltaCard
-          label="KTB Hedge Net Delta"
-          value={-1439581653}
-          unit="₩"
-          format="krw"
-        />
-        <HedgeDeltaCard
-          label="UST Hedge Net Delta"
-          value={-85500336}
-          unit="₩"
-          format="krw"
+        <CurrencyGroupCard
+          currency="USD"
+          items={[
+            { label: 'USD Hedge', value: -770462 },
+            { label: 'UST Hedge', value: -85500336 },
+          ]}
         />
       </div>
 
-      {/* 통화별 소계 + 전체 Net Delta */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <HedgeDeltaCard
-          label="KRW 소계 (KRW + KTB)"
-          value={-318069592 + -1439581653}
-          unit="₩"
-          format="krw"
-          highlight
-        />
-        <HedgeDeltaCard
-          label="USD 소계 (USD + UST)"
-          value={-770462 + -85500336}
-          unit="₩"
-          format="krw"
-          highlight
-        />
-        <HedgeDeltaCard
-          label="전체 Net Delta"
-          value={-318069592 + -770462 + -1439581653 + -85500336}
-          unit="₩"
-          format="krw"
-          highlight
-          accent
-        />
+      {/* 전체 Net Delta */}
+      <div className="mb-6">
+        <TotalDeltaCard value={-318069592 + -770462 + -1439581653 + -85500336} />
       </div>
 
       {/* 금리 리스크 섹션 */}
