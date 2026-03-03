@@ -27,11 +27,15 @@ function HedgeDeltaCard({
   value,
   unit,
   format,
+  highlight = false,
+  accent = false,
 }: {
   label: string;
   value: number;
   unit: string;
   format: 'krw' | 'usd';
+  highlight?: boolean;
+  accent?: boolean;
 }) {
   const isNeg = value < 0;
   const sign = isNeg ? '−' : '+';
@@ -40,15 +44,28 @@ function HedgeDeltaCard({
     : 'text-emerald-600 dark:text-emerald-400';
   const formatted = formatDelta(value, format);
 
+  // 배경 스타일: accent > highlight > 기본
+  const bg = accent
+    ? 'bg-gray-900 dark:bg-gray-50 border-gray-900 dark:border-gray-50'
+    : highlight
+      ? 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600'
+      : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700';
+  const labelColor = accent
+    ? 'text-gray-300 dark:text-gray-600'
+    : 'text-gray-500 dark:text-gray-400';
+  const subColor = accent
+    ? 'text-gray-400 dark:text-gray-500'
+    : 'text-gray-400 dark:text-gray-500';
+
   return (
-    <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+    <div className={`rounded-xl border p-4 shadow-sm ${bg}`}>
+      <p className={`text-xs font-medium uppercase tracking-wide ${labelColor}`}>
         {label}
       </p>
       <p className={`${lusitana.className} mt-2 text-2xl font-bold ${color}`}>
         {sign}{unit}{formatted}
       </p>
-      <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+      <p className={`mt-1 text-[10px] font-mono ${subColor}`}>
         {sign}{Math.abs(value).toLocaleString()}
       </p>
     </div>
@@ -62,8 +79,8 @@ export default function RiskPage() {
         RISK
       </h1>
 
-      {/* Hedge Net Delta 카드 */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Hedge Net Delta 개별 카드 */}
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <HedgeDeltaCard
           label="KRW Hedge Net Delta"
           value={-318069592}
@@ -87,6 +104,32 @@ export default function RiskPage() {
           value={-85500336}
           unit="₩"
           format="krw"
+        />
+      </div>
+
+      {/* 통화별 소계 + 전체 Net Delta */}
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <HedgeDeltaCard
+          label="KRW 소계 (KRW + KTB)"
+          value={-318069592 + -1439581653}
+          unit="₩"
+          format="krw"
+          highlight
+        />
+        <HedgeDeltaCard
+          label="USD 소계 (USD + UST)"
+          value={-770462 + -85500336}
+          unit="₩"
+          format="krw"
+          highlight
+        />
+        <HedgeDeltaCard
+          label="전체 Net Delta"
+          value={-318069592 + -770462 + -1439581653 + -85500336}
+          unit="₩"
+          format="krw"
+          highlight
+          accent
         />
       </div>
 
