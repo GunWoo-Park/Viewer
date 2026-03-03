@@ -118,7 +118,13 @@ function CarryCard({ data }: { data: CarryAggregation }) {
   );
 }
 
-// 자산→MTM→캐리 full set 집계 카드
+// 날짜 포맷: YYYYMMDD → MM/DD
+function fmtDate(d: string): string {
+  if (d.length !== 8) return d;
+  return `${d.slice(4, 6)}/${d.slice(6, 8)}`;
+}
+
+// 캐리스왑 매칭 집계 카드
 function TpAggregationCard({ data }: { data: TpAggregation }) {
   const krw = data.rows.find((r) => r.curr === 'KRW');
   const usd = data.rows.find((r) => r.curr === 'USD');
@@ -128,6 +134,10 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
   const totalNotnKrw =
     (krw?.assetNotional || 0) + (usd?.assetNotional || 0) * data.usdKrwRate;
   const totalMtm = (krw?.totalMtm || 0) + (usd?.totalMtm || 0);
+  const totalPrevMtm = (krw?.prevMtm || 0) + (usd?.prevMtm || 0);
+  const totalMtmChange = totalMtm - totalPrevMtm;
+  const totalCarryMtmChange =
+    (krw?.carryMtmChange || 0) + (usd?.carryMtmChange || 0);
 
   // 전체 가중평균 캐리
   const krwWc = krw && krw.avgCarry != null ? krw.assetNotional * krw.avgCarry : 0;
@@ -143,6 +153,8 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
     notional: string;
     notionalSub?: string;
     mtm: number;
+    mtmChange: number;
+    carryMtmChange: number;
     carry: number | null;
     isBold?: boolean;
   };
@@ -157,6 +169,8 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
       count: krw.assetCount,
       notional: formatKRW(krw.assetNotional),
       mtm: krw.totalMtm,
+      mtmChange: krw.mtmChange,
+      carryMtmChange: krw.carryMtmChange,
       carry: krw.avgCarry,
     });
   }
@@ -170,6 +184,8 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
       notional: formatUSD(usd.assetNotional),
       notionalSub: formatKRW(usd.assetNotional * data.usdKrwRate),
       mtm: usd.totalMtm,
+      mtmChange: usd.mtmChange,
+      carryMtmChange: usd.carryMtmChange,
       carry: usd.avgCarry,
     });
   }
@@ -179,6 +195,8 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
     count: totalAssetCount,
     notional: formatKRW(totalNotnKrw),
     mtm: totalMtm,
+    mtmChange: totalMtmChange,
+    carryMtmChange: totalCarryMtmChange,
     carry: totalAvgCarry,
     isBold: true,
   });
@@ -189,12 +207,19 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
         <div className="rounded-lg p-2 bg-cyan-600">
           <TableCellsIcon className="w-5 h-5 text-white" />
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          자산→MTM→캐리 매칭 집계
-          <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
-            (자산 노셔널 기준, MTM은 set 합산)
-          </span>
-        </p>
+        <div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            캐리스왑 매칭 집계
+            <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
+              (자산 노셔널 기준, MTM은 set 합산)
+            </span>
+          </p>
+          {data.latestDate && (
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              기준일 {fmtDate(data.latestDate)} / 전일 {fmtDate(data.prevDate)}
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -205,6 +230,8 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
               <th className="py-1.5 text-right font-medium px-2">자산 건수</th>
               <th className="py-1.5 text-right font-medium px-2">자산 노셔널</th>
               <th className="py-1.5 text-right font-medium px-2">MTM (set 합)</th>
+              <th className="py-1.5 text-right font-medium px-2">일간 변동</th>
+              <th className="py-1.5 text-right font-medium px-2">캐리 변동</th>
               <th className="py-1.5 text-right font-medium px-2">평균 Carry</th>
             </tr>
           </thead>
@@ -240,6 +267,12 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
                   </td>
                   <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.mtm)}`}>
                     {fmtMtm(row.mtm)}
+                  </td>
+                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.mtmChange)}`}>
+                    {fmtMtm(row.mtmChange)}
+                  </td>
+                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.carryMtmChange)}`}>
+                    {fmtMtm(row.carryMtmChange)}
                   </td>
                   <td className="py-2 px-2 text-right">
                     <span className={`font-mono font-bold ${carryColor(row.carry)}`}>
@@ -300,7 +333,7 @@ export default function SummaryCards({
       {/* 평균 캐리 카드 (자산 기준) */}
       {carryData && <CarryCard data={carryData} />}
 
-      {/* 자산→MTM→캐리 full set 집계 (4칸 차지) */}
+      {/* 캐리스왑 매칭 집계 (4칸 차지) */}
       {tpData && tpData.rows.length > 0 && <TpAggregationCard data={tpData} />}
     </div>
   );

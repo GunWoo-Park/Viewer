@@ -715,25 +715,30 @@ export async function fetchWeightedAvgCarry(): Promise<CarryAggregation> {
   }
 }
 
-// 자산→MTM→캐리 full set 기준 통화별 집계
+// 캐리스왑 매칭 (자산→MTM→캐리 full set) 기준 통화별 집계
 export type TpSetRow = {
   curr: string;
   assetCount: number;      // 자산 건수
   assetNotional: number;   // 자산 노셔널 (KRW→원, USD→달러)
-  totalMtm: number;        // 자산+MTM+캐리 전체 MTM 합계 (원화)
+  totalMtm: number;        // 최근일 MTM 합계 (원화)
+  prevMtm: number;         // 전영업일 MTM 합계 (원화)
+  mtmChange: number;       // 전체 set 가격변동 (최근일 - 전영업일)
+  carryMtmChange: number;  // 캐리 전용 가격변동 (최근일 - 전영업일)
   avgCarry: number | null; // 자산 기준 가중평균 캐리
 };
 
 export type TpAggregation = {
   rows: TpSetRow[];
   usdKrwRate: number;
+  latestDate: string;      // 최근 기준일
+  prevDate: string;        // 전영업일
 };
 
 export async function fetchTpAggregation(): Promise<TpAggregation> {
   noStore();
 
   try {
-    const [data, fxResult] = await Promise.all([
+    const [data, fxResult, datesResult] = await Promise.all([
       sql`
         WITH full_sets AS (
           SELECT eff_dt, curr
@@ -751,18 +756,31 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
           WHERE eval_mdul_cd = '3'
           ORDER BY obj_cd, leg_tp, std_dt DESC
         ),
-        latest_swap AS (
-          SELECT DISTINCT ON (obj_cd)
-            obj_cd, avg_prc
+        top2dates AS (
+          SELECT DISTINCT std_dt FROM swap_prc
+          WHERE fnd_cd = '10206020'
+          ORDER BY std_dt DESC LIMIT 2
+        ),
+        swap_latest AS (
+          SELECT obj_cd, avg_prc
           FROM swap_prc
           WHERE fnd_cd = '10206020'
-          ORDER BY obj_cd, std_dt DESC
+            AND std_dt = (SELECT MAX(std_dt) FROM top2dates)
+        ),
+        swap_prev AS (
+          SELECT obj_cd, avg_prc
+          FROM swap_prc
+          WHERE fnd_cd = '10206020'
+            AND std_dt = (SELECT MIN(std_dt) FROM top2dates)
         )
         SELECT
           p.curr,
           COUNT(*) FILTER (WHERE p.tp = '자산') AS asset_cnt,
           SUM(p.notn) FILTER (WHERE p.tp = '자산') AS asset_notn,
-          SUM(COALESCE(s.avg_prc, 0)) AS total_mtm,
+          SUM(COALESCE(sl.avg_prc, 0)) AS total_mtm,
+          SUM(COALESCE(sp.avg_prc, 0)) AS prev_mtm,
+          SUM(COALESCE(sl.avg_prc, 0)) FILTER (WHERE p.tp = '캐리') AS carry_mtm_latest,
+          SUM(COALESCE(sp.avg_prc, 0)) FILTER (WHERE p.tp = '캐리') AS carry_mtm_prev,
           CASE WHEN SUM(p.notn) FILTER (WHERE p.tp = '자산') > 0
             THEN SUM(p.notn * (COALESCE(c.rate, 0) - COALESCE(f.rate, 0)))
                  FILTER (WHERE p.tp = '자산')
@@ -773,7 +791,8 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
         INNER JOIN full_sets fs ON fs.eff_dt = p.eff_dt AND fs.curr = p.curr
         LEFT JOIN latest_rates c ON c.obj_cd = p.obj_cd AND c.leg_tp = 'Coupon'
         LEFT JOIN latest_rates f ON f.obj_cd = p.obj_cd AND f.leg_tp = 'Fund'
-        LEFT JOIN latest_swap s ON s.obj_cd = p.obj_cd
+        LEFT JOIN swap_latest sl ON sl.obj_cd = p.obj_cd
+        LEFT JOIN swap_prev sp ON sp.obj_cd = p.obj_cd
         WHERE p.fnd_cd = '10206020'
           AND p.tp IN ('자산','MTM','캐리')
           AND (p.call_yn = 'N' OR p.call_yn IS NULL)
@@ -785,23 +804,42 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
         WHERE ticker = 'USD/KRW' AND asset_class = 'FX'
         ORDER BY base_date DESC LIMIT 1
       `,
+      sql`
+        SELECT DISTINCT std_dt FROM swap_prc
+        WHERE fnd_cd = '10206020'
+        ORDER BY std_dt DESC LIMIT 2
+      `,
     ]);
 
     const usdKrwRate = fxResult.rows.length > 0
       ? Number(fxResult.rows[0].close_value) : 1450;
 
-    const rows: TpSetRow[] = data.rows.map((row) => ({
-      curr: row.curr as string,
-      assetCount: Number(row.asset_cnt),
-      assetNotional: Number(row.asset_notn),
-      totalMtm: Number(row.total_mtm) || 0,
-      avgCarry: row.avg_carry != null ? Number(row.avg_carry) : null,
-    }));
+    // 최근 2영업일 날짜
+    const dates = datesResult.rows.map((r) => r.std_dt as string).sort();
+    const latestDate = dates.length > 0 ? dates[dates.length - 1] : '';
+    const prevDate = dates.length > 1 ? dates[0] : '';
 
-    return { rows, usdKrwRate };
+    const rows: TpSetRow[] = data.rows.map((row) => {
+      const mtm = Number(row.total_mtm) || 0;
+      const prev = Number(row.prev_mtm) || 0;
+      const carryLatest = Number(row.carry_mtm_latest) || 0;
+      const carryPrev = Number(row.carry_mtm_prev) || 0;
+      return {
+        curr: row.curr as string,
+        assetCount: Number(row.asset_cnt),
+        assetNotional: Number(row.asset_notn),
+        totalMtm: mtm,
+        prevMtm: prev,
+        mtmChange: mtm - prev,
+        carryMtmChange: carryLatest - carryPrev,
+        avgCarry: row.avg_carry != null ? Number(row.avg_carry) : null,
+      };
+    });
+
+    return { rows, usdKrwRate, latestDate, prevDate };
   } catch (error) {
     console.error('Database Error:', error);
-    return { rows: [], usdKrwRate: 1450 };
+    return { rows: [], usdKrwRate: 1450, latestDate: '', prevDate: '' };
   }
 }
 
