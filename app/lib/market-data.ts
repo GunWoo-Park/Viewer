@@ -71,6 +71,11 @@ export type BondLending = {
   balance: number;
 };
 
+export type EconomicEvent = {
+  date: string;
+  event: string;
+};
+
 export type MarketDailyData = {
   date: string;
   dayOfWeek: string;
@@ -83,6 +88,7 @@ export type MarketDailyData = {
   creditSpreads: CreditSpread[];
   ktbFutures: KTBFutures[];
   bondLending: BondLending[];
+  events: EconomicEvent[];
 };
 
 // --- 날짜 헬퍼 (타임존 안전) ---
@@ -150,12 +156,14 @@ export async function getMarketDailyData(
       yieldCurveResult,
       ktbResult,
       lendingResult,
+      calendarResult,
     ] = await Promise.all([
       sql`SELECT * FROM tb_macro_index WHERE base_date = ${baseDate}`,
       sql`SELECT * FROM tb_domestic_rate WHERE base_date = ${baseDate}`,
       sql`SELECT * FROM tb_yield_curve_matrix WHERE base_date = ${baseDate}`,
       sql`SELECT * FROM tb_ktb_futures WHERE base_date = ${baseDate}`,
       sql`SELECT * FROM tb_bond_lending WHERE base_date = ${baseDate}`,
+      sql`SELECT event_date, seq, event_desc FROM tb_economic_calendar WHERE event_date = ${baseDate} ORDER BY seq`,
     ]);
 
     type Row = Record<string, any>; // eslint-disable-line
@@ -318,6 +326,18 @@ export async function getMarketDailyData(
       balance: Number(r.balance) || 0,
     }));
 
+    // --- 경제 일정 ---
+    const events: EconomicEvent[] = calendarResult.rows
+      .filter((r: Row) => {
+        const desc = String(r.event_desc || '').trim();
+        // 의미 없는 값 ('0', '-', 저작권 문구 등) 필터링
+        return desc && desc !== '0' && desc !== '-' && !desc.startsWith('-본 자료는');
+      })
+      .map((r: Row) => ({
+        date: formatDateSafe(r.event_date as Date | string),
+        event: String(r.event_desc).trim(),
+      }));
+
     return {
       date: baseDate,
       dayOfWeek,
@@ -330,6 +350,7 @@ export async function getMarketDailyData(
       creditSpreads,
       ktbFutures,
       bondLending,
+      events,
     };
   } catch (error) {
     console.error('=== Market DB 조회 에러 ===');

@@ -221,7 +221,7 @@ function DashboardInner({ data, availableDates }: MarketDashboardProps) {
           <BondLendingSection bondLending={data.bondLending} />
         </div>
         <div>
-          <MacroCalendarSection />
+          <MacroCalendarSection events={data.events} />
         </div>
       </div>
     </div>
