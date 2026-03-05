@@ -268,14 +268,10 @@ export async function getMarketDailyData(
       return { name: p.name, irs: irsVal, sp };
     });
 
-    // 디버그 로그
-    console.log('[Market] spreads:', JSON.stringify(spreads));
-
     // --- 크레딧 커브 ---
     // 섹터별 그룹핑: credit_rating 무시하고 sector 이름만 사용
     // (이전 데이터는 '은행 AAA', '은행 AA+' 등으로 분리, 최신 데이터는 credit_rating 없음)
     // 특수채만 '특수채 AAA'로 표시 (creditOrder와 매칭)
-    const tenors = ['3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', '20Y'];
     const sectorGroups = new Map<string, Map<string, number>>();
 
     for (const row of yieldCurveResult.rows) {
@@ -308,10 +304,6 @@ export async function getMarketDailyData(
       '지역개발',
       '도철',
     ];
-
-    // 디버그: sectorGroups 키 확인
-    console.log('[Market] sectorGroups keys:', Array.from(sectorGroups.keys()));
-    console.log('[Market] creditOrder match:', creditOrder.filter((n) => sectorGroups.has(n)));
 
     const creditSpreads: CreditSpread[] = creditOrder
       .filter((name) => sectorGroups.has(name))

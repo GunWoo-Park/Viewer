@@ -34,13 +34,12 @@ export async function POST(request: NextRequest) {
     }
 
     // 각 종목의 MTM 시계열 조회 (최근 90영업일)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const objCodes = productsResult.rows.map((r: any) => r.obj_cd as string);
+    const objCodes = productsResult.rows.map((r) => String(r.obj_cd));
 
     const mtmResult = await sql`
       SELECT obj_cd, std_dt, avg_prc
       FROM swap_prc
-      WHERE obj_cd = ANY(${objCodes as any})
+      WHERE obj_cd = ANY(${objCodes as string[]})
         AND fnd_cd = '10206020'
         AND std_dt >= (
           SELECT DISTINCT std_dt FROM swap_prc
@@ -63,13 +62,12 @@ export async function POST(request: NextRequest) {
     }
 
     // 상품별 데이터 구성
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const products = productsResult.rows.map((row: any) => ({
-      obj_cd: row.obj_cd as string,
-      tp: row.tp as string,
+    const products = productsResult.rows.map((row) => ({
+      obj_cd: String(row.obj_cd),
+      tp: String(row.tp),
       notn: Number(row.notn),
-      cntr_nm: row.cntr_nm as string,
-      mtm_data: mtmMap.get(row.obj_cd as string) || [],
+      cntr_nm: String(row.cntr_nm),
+      mtm_data: mtmMap.get(String(row.obj_cd)) || [],
     }));
 
     // 합산 시계열 (날짜별 전체 MTM 합)
