@@ -856,3 +856,104 @@ export async function fetchStrucprdpById(objCd: string): Promise<Strucprdp | nul
     return null;
   }
 }
+
+// --- Gapping BTB Delta ---
+// 자산(tp='자산')의 잔존만기별 Delta = Notional × 0.0001 (1bp)
+export type GappingDeltaItem = {
+  tenor: string;       // 테너 라벨 (예: "5Y", "10Y", "15Y")
+  tenorYears: number;  // 정렬용 연 수
+  krwDelta: number;    // KRW 델타 합계
+  usdDelta: number;    // USD 델타 합계
+};
+
+export type GappingDeltaSummary = {
+  items: GappingDeltaItem[];
+  totalKrw: number;
+  totalUsd: number;
+  usdKrwRate: number;  // 최신 USD/KRW 환율
+};
+
+export async function fetchGappingBtbDelta(): Promise<GappingDeltaSummary> {
+  noStore();
+
+  try {
+    const [data, fxResult] = await Promise.all([
+      sql`
+        SELECT obj_cd, curr, notn, mat_dt
+        FROM strucprdp
+        WHERE tp = '자산'
+          AND (call_yn = 'N' OR call_yn IS NULL)
+          AND fnd_cd = '10206020'
+          AND mat_dt IS NOT NULL
+        ORDER BY mat_dt
+      `,
+      sql`
+        SELECT close_value FROM tb_macro_index
+        WHERE ticker = 'USD/KRW' AND asset_class = 'FX'
+        ORDER BY base_date DESC LIMIT 1
+      `,
+    ]);
+
+    const usdKrwRate = fxResult.rows.length > 0
+      ? Number(fxResult.rows[0].close_value) : 1450;
+
+    const today = new Date();
+    const todayMs = today.getTime();
+
+    // 테너 버킷: 1Y 단위 (예: 5Y, 6Y, ... 20Y, 21Y)
+    const buckets = new Map<number, { krw: number; usd: number }>();
+    let totalKrw = 0;
+    let totalUsd = 0;
+
+    for (const row of data.rows) {
+      const notn = Number(row.notn) || 0;
+      if (notn === 0) continue;
+
+      // 만기일 파싱 (YYYYMMDD 형식)
+      const matStr = String(row.mat_dt).replace(/-/g, '');
+      if (matStr.length !== 8) continue;
+      const matDate = new Date(
+        Number(matStr.slice(0, 4)),
+        Number(matStr.slice(4, 6)) - 1,
+        Number(matStr.slice(6, 8)),
+      );
+      const remainingDays = (matDate.getTime() - todayMs) / (1000 * 60 * 60 * 24);
+      if (remainingDays <= 0) continue;
+
+      const remainingYears = remainingDays / 365.25;
+      // 1Y 단위 버킷으로 반올림 (예: 5.3Y → 5Y, 5.7Y → 6Y)
+      const bucket = Math.round(remainingYears);
+
+      // DV01 ≈ Notional × 0.0001 × 잔존만기(년)
+      const delta = notn * 0.0001 * remainingYears;
+      const curr = String(row.curr).toUpperCase();
+
+      if (!buckets.has(bucket)) {
+        buckets.set(bucket, { krw: 0, usd: 0 });
+      }
+      const b = buckets.get(bucket)!;
+      if (curr === 'USD') {
+        b.usd += delta;
+        totalUsd += delta;
+      } else {
+        b.krw += delta;
+        totalKrw += delta;
+      }
+    }
+
+    // 정렬된 배열로 변환
+    const items: GappingDeltaItem[] = Array.from(buckets.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([year, val]) => ({
+        tenor: `${year}Y`,
+        tenorYears: year,
+        krwDelta: Math.round(val.krw),
+        usdDelta: Math.round(val.usd),
+      }));
+
+    return { items, totalKrw: Math.round(totalKrw), totalUsd: Math.round(totalUsd), usdKrwRate };
+  } catch (error) {
+    console.error('fetchGappingBtbDelta Error:', error);
+    return { items: [], totalKrw: 0, totalUsd: 0, usdKrwRate: 1450 };
+  }
+}

@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 각 종목의 MTM 시계열 조회 (최근 90영업일)
-    const objCodes = productsResult.rows.map((r) => r.obj_cd as string);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const objCodes = productsResult.rows.map((r: any) => r.obj_cd as string);
 
     const mtmResult = await sql`
       SELECT obj_cd, std_dt, avg_prc
@@ -62,7 +63,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 상품별 데이터 구성
-    const products = productsResult.rows.map((row) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const products = productsResult.rows.map((row: any) => ({
       obj_cd: row.obj_cd as string,
       tp: row.tp as string,
       notn: Number(row.notn),

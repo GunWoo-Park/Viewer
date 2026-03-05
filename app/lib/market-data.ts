@@ -179,19 +179,19 @@ export async function getMarketDailyData(
       changePercent: Number(r.change_pct) || 0,
     }));
 
-    // --- 미국채 금리 ---
-    const usBondRows = macroResult.rows.filter(
-      (r: Row) => r.asset_class === 'US_BOND',
+    // --- 미국채 금리 (tb_domestic_rate의 rate_type='UST') ---
+    const ustRows = domesticResult.rows.filter(
+      (r: Row) => r.rate_type === 'UST',
     );
-    const tenorOrder = ['US 2Y', 'US 5Y', 'US 10Y', 'US 30Y'];
-    const usTreasury: USTreasury[] = tenorOrder
-      .map((name) => {
-        const row = usBondRows.find((r: Row) => r.ticker === name);
+    const ustTenorOrder = ['2Y', '5Y', '10Y', '30Y'];
+    const usTreasury: USTreasury[] = ustTenorOrder
+      .map((tenor) => {
+        const row = ustRows.find((r: Row) => r.maturity === tenor);
         if (!row) return null;
         return {
-          tenor: name.replace('US ', ''),
-          level: Number(row.close_value) || 0,
-          change: Number(row.change_val) || 0,
+          tenor,
+          level: Number(row.yield_val) || 0,
+          change: Number(row.change_bp) || 0,
         };
       })
       .filter(Boolean) as USTreasury[];
@@ -229,66 +229,89 @@ export async function getMarketDailyData(
       })
       .filter(Boolean) as CRSRate[];
 
-    // --- CD/통안/국고/회사채 ---
+    // --- CD/통안/국고/회사채 (IRS, CRS, UST 제외한 국내 금리) ---
+    const bondRateTypes = ['CD', '통안', '국고채', '회사채', '기타'];
     const cashRows = domesticResult.rows.filter(
-      (r: Row) => r.rate_type === 'CASH',
+      (r: Row) => bondRateTypes.includes(r.rate_type),
     );
     const bonds: BondYield[] = cashRows.map((r: Row) => ({
-      name: r.maturity || r.ticker_name || '',
+      name: r.ticker_name || r.maturity || '',
       level: Number(r.yield_val) || 0,
       change: Number(r.change_bp) || 0,
     }));
 
-    // --- Bond-Swap Spread (IRS - CASH 계산) ---
+    // --- Bond-Swap Spread (현물 - IRS 계산) ---
+    // cashKey: tb_domestic_rate의 ticker_name 또는 maturity
+    // ycFallback: tb_domestic_rate에 없을 경우 yield_curve_matrix에서 조회 (sector, tenor)
     const spreadPairs = [
-      { name: '통안1Y-IRS1Y', cashKey: 'CD 91일', irsKey: '1Y' },
-      { name: '통안2Y-IRS2Y', cashKey: '통안 2년', irsKey: '2Y' },
-      { name: '국고3Y-IRS3Y', cashKey: '국고 3년', irsKey: '3Y' },
-      { name: '국고5Y-IRS5Y', cashKey: '국고 5년', irsKey: '5Y' },
-      { name: '국고10Y-IRS10Y', cashKey: '국고 10년', irsKey: '10Y' },
+      { name: '통안1Y-IRS1Y', cashKey: '통안1년', irsKey: '1Y', ycFallback: { sector: '통안', tenor: '1Y' } },
+      { name: '통안2Y-IRS2Y', cashKey: '통안2년', irsKey: '2Y', ycFallback: { sector: '통안', tenor: '2Y' } },
+      { name: '국고3Y-IRS3Y', cashKey: '국고채 3년', irsKey: '3Y', ycFallback: { sector: '국고', tenor: '3Y' } },
+      { name: '국고5Y-IRS5Y', cashKey: '국고채 5년', irsKey: '5Y', ycFallback: { sector: '국고', tenor: '5Y' } },
+      { name: '국고10Y-IRS10Y', cashKey: '국고채 10년', irsKey: '10Y', ycFallback: { sector: '국고', tenor: '10Y' } },
     ];
     const spreads: BondSpread[] = spreadPairs.map((p) => {
       const irsRow = irsRows.find((r: Row) => r.maturity === p.irsKey);
-      const cashRow = cashRows.find((r: Row) => r.maturity === p.cashKey);
+      const cashRow = cashRows.find(
+        (r: Row) => r.ticker_name === p.cashKey || r.maturity === p.cashKey,
+      );
       const irsVal = Number(irsRow?.yield_val) || 0;
-      const cashVal = Number(cashRow?.yield_val) || 0;
-      return {
-        name: p.name,
-        irs: irsVal,
-        sp: cashVal && irsVal ? (cashVal - irsVal) * 100 : 0,
-      };
+      let cashVal = Number(cashRow?.yield_val) || 0;
+      // tb_domestic_rate에 없으면 yield_curve_matrix에서 폴백 조회
+      if (!cashVal && p.ycFallback) {
+        const ycRow = yieldCurveResult.rows.find(
+          (r: Row) => r.sector === p.ycFallback!.sector && r.tenor === p.ycFallback!.tenor,
+        );
+        cashVal = Number(ycRow?.yield_rate) || 0;
+      }
+      const sp = cashVal && irsVal ? (cashVal - irsVal) * 100 : 0;
+      return { name: p.name, irs: irsVal, sp };
     });
 
+    // 디버그 로그
+    console.log('[Market] spreads:', JSON.stringify(spreads));
+
     // --- 크레딧 커브 ---
+    // 섹터별 그룹핑: credit_rating 무시하고 sector 이름만 사용
+    // (이전 데이터는 '은행 AAA', '은행 AA+' 등으로 분리, 최신 데이터는 credit_rating 없음)
+    // 특수채만 '특수채 AAA'로 표시 (creditOrder와 매칭)
     const tenors = ['3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', '20Y'];
     const sectorGroups = new Map<string, Map<string, number>>();
 
     for (const row of yieldCurveResult.rows) {
+      // 특수채 섹터만 'AAA' 표기 유지, 나머지는 sector명만 사용
       const key =
-        row.credit_rating && row.credit_rating.trim()
-          ? `${row.sector} ${row.credit_rating}`
-          : row.sector;
+        row.sector === '특수채' ? '특수채 AAA' : String(row.sector);
       if (!sectorGroups.has(key)) {
         sectorGroups.set(key, new Map());
       }
-      sectorGroups.get(key)!.set(row.tenor, Number(row.yield_rate) || 0);
+      const tenorMap = sectorGroups.get(key)!;
+      const tenor = String(row.tenor);
+      const rate = Number(row.yield_rate) || 0;
+      // 동일 sector/tenor에 복수 credit_rating이 있으면 AAA 또는 빈 값 우선
+      const cr = String(row.credit_rating || '').trim();
+      if (!tenorMap.has(tenor) || cr === '' || cr === 'AAA') {
+        tenorMap.set(tenor, rate);
+      }
     }
 
-    // 정렬 순서 지정
+    // 정렬 순서 지정 (DB의 실제 sector+credit_rating 조합)
     const creditOrder = [
       '국고',
-      '국주',
-      '특수 AAA',
-      '특수 AA+',
-      '은행 AAA',
-      '은행 AA+',
-      '카드 AA+',
-      '카드 AA0',
-      '회사 AAA',
-      '회사 AA+',
-      '회사 AA0',
-      '회사 AA-',
+      '통안',
+      '특수채 AAA',
+      '특수',
+      '은행',
+      '중금',
+      '카드',
+      '회사',
+      '지역개발',
+      '도철',
     ];
+
+    // 디버그: sectorGroups 키 확인
+    console.log('[Market] sectorGroups keys:', Array.from(sectorGroups.keys()));
+    console.log('[Market] creditOrder match:', creditOrder.filter((n) => sectorGroups.has(n)));
 
     const creditSpreads: CreditSpread[] = creditOrder
       .filter((name) => sectorGroups.has(name))
