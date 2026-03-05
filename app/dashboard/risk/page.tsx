@@ -97,11 +97,11 @@ function TotalDeltaCard({ value }: { value: number }) {
     : 'text-emerald-500 dark:text-emerald-400';
 
   return (
-    <div className="rounded-xl bg-gray-900 dark:bg-gray-100 p-5 shadow-sm">
+    <div className="flex flex-col items-center justify-center rounded-xl bg-gray-900 dark:bg-gray-100 p-6 shadow-sm">
       <p className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
         전체 Net Delta
       </p>
-      <p className={`${lusitana.className} mt-2 text-3xl font-bold ${color}`}>
+      <p className={`${lusitana.className} mt-3 text-3xl font-bold ${color}`}>
         {sign}₩{formatDelta(value, 'krw')}
       </p>
       <p className="mt-1 font-mono text-[10px] text-gray-500 dark:text-gray-400">
@@ -209,31 +209,31 @@ export default async function RiskPage() {
         RISK
       </h1>
 
-      {/* 상단: NET DELTA (좌) + Gapping BTB DELTA (우) */}
-      <div className="mb-6 grid gap-4 lg:grid-cols-2">
-        {/* 좌측: NET DELTA */}
+      {/* NET DELTA(좌) | Gapping BTB Delta(우) */}
+      <div className="mb-6 grid gap-4 grid-cols-1 lg:grid-cols-2">
+        {/* 좌측: KRW·USD 가로 + 전체 Net Delta */}
         <div className="space-y-4">
-          <CurrencyGroupCard
-            currency="KRW"
-            items={[
-              { label: 'KRW Hedge', value: -318069592 },
-              { label: 'KTB Hedge', value: -1439581653 },
-            ]}
-          />
-          <CurrencyGroupCard
-            currency="USD"
-            items={[
-              { label: 'USD Hedge', value: -770462 },
-              { label: 'UST Hedge', value: -85500336 },
-            ]}
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <CurrencyGroupCard
+              currency="KRW"
+              items={[
+                { label: 'KRW Hedge', value: -318069592 },
+                { label: 'KTB Hedge', value: -1439581653 },
+              ]}
+            />
+            <CurrencyGroupCard
+              currency="USD"
+              items={[
+                { label: 'USD Hedge', value: -770462 },
+                { label: 'UST Hedge', value: -85500336 },
+              ]}
+            />
+          </div>
           <TotalDeltaCard value={-318069592 + -770462 + -1439581653 + -85500336} />
         </div>
 
         {/* 우측: Gapping BTB Delta */}
-        <div>
-          <GappingDeltaCard data={gappingDelta} />
-        </div>
+        <GappingDeltaCard data={gappingDelta} />
       </div>
 
       {/* 금리 리스크 섹션 */}
