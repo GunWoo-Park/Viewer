@@ -15,18 +15,22 @@ const TENOR_KEYS = [
   'y3M', 'y6M', 'y1Y', 'y2Y', 'y3Y', 'y5Y', 'y10Y', 'y20Y',
 ] as const;
 
-// 커브별 색상
+// 커브별 색상 (market-data.ts의 sector명 기준)
 const CURVE_COLORS: Record<string, string> = {
   '국고': '#4A9EFF',
-  '국주': '#00FF87',
-  '특수 AAA': '#FFD700',
-  '은행 AAA': '#FF6B6B',
-  '회사 AAA': '#C084FC',
-  '회사 AA+': '#F97316',
+  '통안': '#00FF87',
+  '특수채 AAA': '#FFD700',
+  '특수': '#FFD700',
+  '은행': '#FF6B6B',
+  '중금': '#FF8C94',
+  '카드': '#F97316',
+  '회사': '#C084FC',
+  '지역개발': '#67E8F9',
+  '도철': '#A3E635',
 };
 
 // 기본 표시할 커브
-const DEFAULT_VISIBLE = ['국고', '특수 AAA', '은행 AAA', '회사 AAA'];
+const DEFAULT_VISIBLE = ['국고', '특수채 AAA', '은행', '회사'];
 
 export default function YieldCurveChart({
   creditSpreads,
