@@ -306,3 +306,36 @@ CREATE TABLE IF NOT EXISTS tb_economic_calendar (
   event_desc VARCHAR(200),
   PRIMARY KEY (event_date, seq)
 );
+
+-- =============================================
+-- 5. 실쿠폰유출입 / MTM 가격 테이블
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS excpnp (
+  id SERIAL PRIMARY KEY,
+  pay_dt VARCHAR(8) NOT NULL,
+  fnd_cd VARCHAR(50),
+  fnd_nm VARCHAR(200),
+  obj_cd VARCHAR(50) NOT NULL,
+  tp VARCHAR(50),
+  curr VARCHAR(10),
+  amt DOUBLE PRECISION DEFAULT 0,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP,
+  UNIQUE(pay_dt, obj_cd, tp, curr, amt)
+);
+
+CREATE TABLE IF NOT EXISTS breakdownprc (
+  id SERIAL PRIMARY KEY,
+  obj_cd VARCHAR(50) NOT NULL,
+  sp_num VARCHAR(20),
+  asst_lblt VARCHAR(20),
+  tp VARCHAR(50),
+  std_dt VARCHAR(8) NOT NULL,
+  kis_prc DOUBLE PRECISION DEFAULT 0,
+  kap_prc DOUBLE PRECISION DEFAULT 0,
+  avg_prc DOUBLE PRECISION DEFAULT 0,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP,
+  UNIQUE(obj_cd, sp_num, tp, std_dt)
+);

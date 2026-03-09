@@ -412,6 +412,7 @@ export async function fetchStrucprdpSummary(): Promise<StrucprdpSummary | null> 
         WHERE asst_lblt = '자산'
           AND (call_yn = 'N' OR call_yn IS NULL)
           AND fnd_cd = '10206020'
+          AND tp != '자체발행'
       `,
       // 구조 유형별 자산 명목금액 (Alive + 자산, type1/type2/type3 조합 + 통화별)
       sql`
@@ -424,6 +425,7 @@ export async function fetchStrucprdpSummary(): Promise<StrucprdpSummary | null> 
           AND asst_lblt = '자산'
           AND (call_yn = 'N' OR call_yn IS NULL)
           AND fnd_cd = '10206020'
+          AND tp != '자체발행'
         GROUP BY CONCAT_WS(' / ', NULLIF(type1,''), NULLIF(type2,''), NULLIF(type3,'')), curr
         ORDER BY COALESCE(SUM(notn), 0) DESC
         LIMIT 20
@@ -439,6 +441,7 @@ export async function fetchStrucprdpSummary(): Promise<StrucprdpSummary | null> 
           AND asst_lblt = '자산'
           AND (call_yn = 'N' OR call_yn IS NULL)
           AND fnd_cd = '10206020'
+          AND tp != '자체발행'
         GROUP BY cntr_nm, curr
         ORDER BY COALESCE(SUM(notn), 0) DESC
         LIMIT 20
@@ -517,6 +520,7 @@ export async function fetchFilteredStrucprdp(
           OR (${callFilter} = 'N' AND call_yn IS NULL)
         )
         AND fnd_cd = '10206020'
+        AND tp != '자체발행'
       ORDER BY no ASC
     `;
 
@@ -557,6 +561,7 @@ export async function fetchStrucprdpPages(
           OR (${callFilter} = 'N' AND call_yn IS NULL)
         )
         AND fnd_cd = '10206020'
+        AND tp != '자체발행'
     `;
 
     return Math.ceil(Number(count.rows[0].count) / STRUCPRDP_PER_PAGE);
