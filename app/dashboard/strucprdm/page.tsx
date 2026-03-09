@@ -5,12 +5,21 @@ import CallFilter from '@/app/ui/strucprdm/call-filter';
 import SummaryCards from '@/app/ui/strucprdm/summary-cards';
 import DistributionCharts from '@/app/ui/strucprdm/distribution-charts';
 import ClickableStrucprdpTable from '@/app/ui/strucprdm/clickable-table';
+import PnlSummaryCards from '@/app/ui/strucprdm/pnl-summary';
 import {
   SummaryCardsSkeleton,
   DistributionChartsSkeleton,
   TableSkeleton,
 } from '@/app/ui/strucprdm/skeletons';
-import { fetchStrucprdpSummary, fetchLatestAccintRates, fetchWeightedAvgCarry, fetchTpAggregation, fetchFilteredStrucprdp } from '@/app/lib/data';
+import {
+  fetchStrucprdpSummary,
+  fetchLatestAccintRates,
+  fetchWeightedAvgCarry,
+  fetchTpAggregation,
+  fetchFilteredStrucprdp,
+  fetchProductDailyPnl,
+  fetchPnlSummaryByType,
+} from '@/app/lib/data';
 
 export const metadata: Metadata = {
   title: '구조화 상품',
@@ -36,6 +45,11 @@ export default async function StrucprdmPage({
           FICC 구조화 상품 포트폴리오 대시보드 — 상품 구조, 거래상대방, 유형별 분포를 한눈에 확인할 수 있습니다.
         </p>
       </div>
+
+      {/* Daily PnL 요약 */}
+      <Suspense fallback={<div className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />}>
+        <PnlSummaryWrapper />
+      </Suspense>
 
       {/* 요약 카드 */}
       <Suspense fallback={<SummaryCardsSkeleton />}>
@@ -64,6 +78,15 @@ export default async function StrucprdmPage({
   );
 }
 
+// PnL 요약 서버 컴포넌트 래퍼
+async function PnlSummaryWrapper() {
+  const [pnlSummary, pnlData] = await Promise.all([
+    fetchPnlSummaryByType(),
+    fetchProductDailyPnl(),
+  ]);
+  return <PnlSummaryCards summary={pnlSummary} latestDate={pnlData.latestDate} />;
+}
+
 // 요약 카드 서버 컴포넌트 래퍼
 async function SummaryCardsWrapper() {
   const [summary, carryData, tpData] = await Promise.all([
@@ -90,7 +113,7 @@ async function DistributionChartsWrapper() {
   return <DistributionCharts summary={summary} />;
 }
 
-// 테이블 서버 컴포넌트 래퍼 (환율 + 쿠폰/펀딩 금리 + 종목 데이터 전달)
+// 테이블 서버 컴포넌트 래퍼 (환율 + 쿠폰/펀딩 금리 + 종목 데이터 + PnL 전달)
 async function StrucprdmTableWrapper({
   query,
   callFilter,
@@ -98,10 +121,11 @@ async function StrucprdmTableWrapper({
   query: string;
   callFilter: string;
 }) {
-  const [summary, accintRates, products] = await Promise.all([
+  const [summary, accintRates, products, pnlData] = await Promise.all([
     fetchStrucprdpSummary(),
     fetchLatestAccintRates(),
     fetchFilteredStrucprdp(query, 1, callFilter),
+    fetchProductDailyPnl(),
   ]);
   const usdKrwRate = summary?.usdKrwRate ?? 1450;
   return (
@@ -109,6 +133,7 @@ async function StrucprdmTableWrapper({
       products={products}
       usdKrwRate={usdKrwRate}
       accintRates={accintRates}
+      pnlMap={pnlData.pnlMap}
     />
   );
 }

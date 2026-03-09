@@ -1,20 +1,24 @@
 'use client';
 
 import { useState } from 'react';
-import { Strucprdp } from '@/app/lib/definitions';
+import { Strucprdp, ProductDailyPnl } from '@/app/lib/definitions';
 import StrucprdpTable from './table';
 import MTMModal from './mtm-modal';
+import PnlDetailModal from './pnl-detail-modal';
 
 export default function ClickableStrucprdpTable({
   products,
   usdKrwRate,
   accintRates,
+  pnlMap = {},
 }: {
   products: Strucprdp[];
   usdKrwRate: number;
   accintRates: Record<string, { couponRate: number | null; fundRate: number | null }>;
+  pnlMap?: Record<string, ProductDailyPnl>;
 }) {
   const [selected, setSelected] = useState<{ eff_dt: string; curr: string } | null>(null);
+  const [pnlObjCd, setPnlObjCd] = useState<string | null>(null);
 
   return (
     <>
@@ -22,13 +26,21 @@ export default function ClickableStrucprdpTable({
         products={products}
         usdKrwRate={usdKrwRate}
         accintRates={accintRates}
+        pnlMap={pnlMap}
         onRowClick={(eff_dt, curr) => setSelected({ eff_dt, curr })}
+        onPnlClick={(objCd) => setPnlObjCd(objCd)}
       />
       {selected && (
         <MTMModal
           eff_dt={selected.eff_dt}
           curr={selected.curr}
           onClose={() => setSelected(null)}
+        />
+      )}
+      {pnlObjCd && (
+        <PnlDetailModal
+          objCd={pnlObjCd}
+          onClose={() => setPnlObjCd(null)}
         />
       )}
     </>

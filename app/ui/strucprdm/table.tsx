@@ -1,4 +1,4 @@
-import { Strucprdp } from '@/app/lib/definitions';
+import { Strucprdp, ProductDailyPnl } from '@/app/lib/definitions';
 import StructCondTooltip from './struct-cond-tooltip';
 
 // 날짜 포맷: YYYYMMDD → YYYY-MM-DD
@@ -88,6 +88,22 @@ function buildStructType(p: Strucprdp): string {
     .join(' / ');
 }
 
+// PnL 금액 포맷
+function fmtPnl(v: number): string {
+  const b = v / 100000000;
+  if (Math.abs(b) >= 1) {
+    return `${b >= 0 ? '+' : ''}${b.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
+  }
+  const m = v / 10000;
+  return `${m >= 0 ? '+' : ''}${m.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+}
+
+function pnlColor(v: number): string {
+  if (v > 0) return 'text-emerald-600 dark:text-emerald-400';
+  if (v < 0) return 'text-rose-600 dark:text-rose-400';
+  return 'text-gray-500 dark:text-gray-400';
+}
+
 // 금리 포맷: 소수 → 퍼센트 (예: 0.035 → 3.50%)
 function formatRate(rate: number | null): string {
   if (rate == null) return '-';
@@ -118,12 +134,16 @@ export default function StrucprdpTable({
   products,
   usdKrwRate = 1450,
   accintRates = {},
+  pnlMap = {},
   onRowClick,
+  onPnlClick,
 }: {
   products: Strucprdp[];
   usdKrwRate?: number;
   accintRates?: Record<string, { couponRate: number | null; fundRate: number | null }>;
+  pnlMap?: Record<string, ProductDailyPnl>;
   onRowClick?: (eff_dt: string, curr: string) => void;
+  onPnlClick?: (objCd: string) => void;
 }) {
 
   return (
@@ -170,8 +190,10 @@ export default function StrucprdpTable({
                 <p>{formatDate(p.eff_dt)} / {formatDate(p.mat_dt)}</p>
               </div>
               <div>
-                <p className="text-gray-400 dark:text-gray-500 text-xs">만기(년)</p>
-                <p>{p.mat_prd}Y</p>
+                <p className="text-gray-400 dark:text-gray-500 text-xs">Daily PnL</p>
+                <p className={`font-mono text-xs font-semibold ${pnlMap[p.obj_cd] ? pnlColor(pnlMap[p.obj_cd].total_pnl) : 'text-gray-400'}`}>
+                  {pnlMap[p.obj_cd] ? fmtPnl(pnlMap[p.obj_cd].total_pnl) : '-'}
+                </p>
               </div>
             </div>
             {p.asst_lblt === '자산' && accintRates[p.obj_cd] && (
@@ -214,7 +236,6 @@ export default function StrucprdpTable({
               <th className="px-3 py-3 whitespace-nowrap">통화</th>
               <th className="px-3 py-3 whitespace-nowrap text-right">명목금액</th>
               <th className="px-3 py-3 whitespace-nowrap">수수료</th>
-              <th className="px-3 py-3 whitespace-nowrap">만기(년)</th>
               <th className="px-3 py-3 whitespace-nowrap">유효일</th>
               <th className="px-3 py-3 whitespace-nowrap">만기일</th>
               <th className="px-3 py-3 whitespace-nowrap">구조 유형</th>
@@ -224,6 +245,7 @@ export default function StrucprdpTable({
               <th className="px-3 py-3">Pay 구조</th>
               <th className="px-2 py-3 text-center"><div className="leading-tight">Rcv<br/>Rate</div></th>
               <th className="px-3 py-3">Rcv 구조</th>
+              <th className="px-3 py-3 text-right whitespace-nowrap"><div className="leading-tight">Daily<br/>PnL</div></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-900">
@@ -257,17 +279,14 @@ export default function StrucprdpTable({
                     return <span className={color}>{text}</span>;
                   })()}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-center text-gray-700 dark:text-gray-300">
-                  {p.mat_prd}
-                </td>
                 <td className="px-3 py-3 whitespace-nowrap text-gray-500 dark:text-gray-400">
                   {formatDate(p.eff_dt)}
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-gray-500 dark:text-gray-400">
                   {formatDate(p.mat_dt)}
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap max-w-[220px]">
-                  <StructTypeBadges type1={p.type1} type2={p.type2} type3={p.type3} type4={p.type4} />
+                <td className="px-3 py-3 max-w-[180px]">
+                  <StructTypeBadgesCompact type1={p.type1} type2={p.type2} type3={p.type3} type4={p.type4} />
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-center">
                   {p.call_yn === 'Y' ? (
@@ -315,6 +334,24 @@ export default function StrucprdpTable({
                 </td>
                 <td className="px-3 py-3 max-w-[300px]">
                   <StructCondTooltip condition={p.rcv_cond || p.struct_cond} />
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap text-right">
+                  {(() => {
+                    const pnl = pnlMap[p.obj_cd];
+                    if (!pnl) return <span className="text-gray-300 dark:text-gray-600">-</span>;
+                    return (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPnlClick?.(p.obj_cd);
+                        }}
+                        className={`font-mono text-xs font-semibold ${pnlColor(pnl.total_pnl)} hover:underline cursor-pointer`}
+                        title={`MTM: ${fmtPnl(pnl.daily_pnl)}${pnl.coupon_amt ? ` / 쿠폰: ${fmtPnl(pnl.coupon_amt)}` : ''}`}
+                      >
+                        {fmtPnl(pnl.total_pnl)}
+                      </button>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}
@@ -382,7 +419,49 @@ function CurrBadge({ value }: { value: string }) {
   );
 }
 
-// 구조 유형 통합 뱃지 (type1 = 대분류, type2~4 = 세부 분류)
+// 구조 유형 뱃지 — 2줄 컴팩트 (type1 위, type2~4 아래)
+function StructTypeBadgesCompact({
+  type1,
+  type2,
+  type3,
+  type4,
+}: {
+  type1: string;
+  type2: string;
+  type3: string;
+  type4: string;
+}) {
+  const fix = (s: string) => s.replace(/\\/g, '₩');
+
+  if (!type1) return <span className="text-gray-300 dark:text-gray-600">-</span>;
+
+  const type1ColorMap: Record<string, string> = {
+    'Range Accrual': 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
+    Spread: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+    Floater: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
+    InvF: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300',
+    Power: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+    'Zero Callable': 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
+  };
+
+  const mainColor = type1ColorMap[type1] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+  const subParts = [type2, type3, type4].filter((v) => v && v !== '').map(fix);
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold w-fit ${mainColor}`}>
+        {fix(type1)}
+      </span>
+      {subParts.length > 0 && (
+        <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate max-w-[160px]" title={subParts.join(' / ')}>
+          {subParts.join(' / ')}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// 구조 유형 통합 뱃지 (type1 = 대분류, type2~4 = 세부 분류) — 모바일용
 function StructTypeBadges({
   type1,
   type2,

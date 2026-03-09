@@ -208,6 +208,49 @@ export type MTMGroupData = {
   combined_mtm: { std_dt: string; avg_prc: number }[];
 };
 
+// --- PnL 관련 타입 ---
+
+// 종목별 Daily PnL (테이블 표시용)
+export type ProductDailyPnl = {
+  obj_cd: string;
+  today_mtm: number;
+  prev_mtm: number;
+  daily_pnl: number;     // MTM 변동분
+  coupon_amt: number;     // 실쿠폰 유출입 합계
+  total_pnl: number;      // daily_pnl + coupon_amt
+};
+
+// PnL 유형별 요약
+export type PnlSummaryByType = {
+  type1: string;
+  count: number;
+  total_daily_pnl: number;
+  total_coupon: number;
+  total_pnl: number;
+};
+
+// PnL 상세 모달용 (KIS/KAP 가격 + 쿠폰 내역)
+export type PnlDetailData = {
+  obj_cd: string;
+  cntr_nm: string;
+  curr: string;
+  notn: number;
+  // breakdownprc 시계열 (MTM)
+  mtm_series: {
+    std_dt: string;
+    kis_prc: number;
+    kap_prc: number;
+    avg_prc: number;
+  }[];
+  // excpnp 쿠폰 내역
+  coupons: {
+    pay_dt: string;
+    tp: string;
+    curr: string;
+    amt: number;
+  }[];
+};
+
 export type BTBDashboardData = {
   latestDate: string;
   totalBalance: number;

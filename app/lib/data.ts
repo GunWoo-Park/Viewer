@@ -11,6 +11,8 @@ import {
   PnlAttributionRow,
   Strucprdp,
   StrucprdpSummary,
+  ProductDailyPnl,
+  PnlSummaryByType,
 } from './definitions';
 import { formatCurrency } from './utils';
 import { unstable_noStore as noStore} from "next/cache";
@@ -960,5 +962,136 @@ export async function fetchGappingBtbDelta(): Promise<GappingDeltaSummary> {
   } catch (error) {
     console.error('fetchGappingBtbDelta Error:', error);
     return { items: [], totalKrw: 0, totalUsd: 0, usdKrwRate: 1450 };
+  }
+}
+
+// =============================================
+// PnL 관련 함수 (breakdownprc + excpnp)
+// =============================================
+
+/**
+ * 종목별 Daily PnL 조회
+ * MTM: breakdownprc에서 최근일 avg_prc - 전일 avg_prc
+ * 쿠폰: excpnp에서 최근일 pay_dt에 해당하는 amt 합계
+ */
+export async function fetchProductDailyPnl(): Promise<{
+  pnlMap: Record<string, ProductDailyPnl>;
+  latestDate: string;
+  prevDate: string;
+}> {
+  noStore();
+
+  try {
+    // 최근 2영업일 조회
+    const datesResult = await sql`
+      SELECT DISTINCT std_dt FROM breakdownprc WHERE tp = 'MTM'
+      ORDER BY std_dt DESC LIMIT 2
+    `;
+    if (datesResult.rows.length < 2) {
+      return { pnlMap: {}, latestDate: '', prevDate: '' };
+    }
+    const latestDate = String(datesResult.rows[0].std_dt);
+    const prevDate = String(datesResult.rows[1].std_dt);
+
+    // 종목별 MTM 변동 (sp_num별로 합산)
+    const mtmResult = await sql`
+      SELECT
+        b1.obj_cd,
+        SUM(b1.avg_prc) AS today_mtm,
+        SUM(b2.avg_prc) AS prev_mtm,
+        SUM(b1.avg_prc) - SUM(b2.avg_prc) AS daily_pnl
+      FROM breakdownprc b1
+      JOIN breakdownprc b2
+        ON b1.obj_cd = b2.obj_cd AND b1.sp_num = b2.sp_num AND b2.tp = 'MTM'
+      WHERE b1.tp = 'MTM'
+        AND b1.std_dt = ${latestDate}
+        AND b2.std_dt = ${prevDate}
+      GROUP BY b1.obj_cd
+    `;
+
+    // 최근일 쿠폰 유출입 (excpnp)
+    const couponResult = await sql`
+      SELECT obj_cd, SUM(amt) AS coupon_amt
+      FROM excpnp
+      WHERE pay_dt = ${latestDate}
+      GROUP BY obj_cd
+    `;
+
+    const couponMap: Record<string, number> = {};
+    for (const r of couponResult.rows) {
+      couponMap[String(r.obj_cd)] = Number(r.coupon_amt);
+    }
+
+    const pnlMap: Record<string, ProductDailyPnl> = {};
+    for (const r of mtmResult.rows) {
+      const objCd = String(r.obj_cd);
+      const dailyPnl = Number(r.daily_pnl);
+      const couponAmt = couponMap[objCd] || 0;
+      pnlMap[objCd] = {
+        obj_cd: objCd,
+        today_mtm: Number(r.today_mtm),
+        prev_mtm: Number(r.prev_mtm),
+        daily_pnl: dailyPnl,
+        coupon_amt: couponAmt,
+        total_pnl: dailyPnl + couponAmt,
+      };
+    }
+
+    return { pnlMap, latestDate, prevDate };
+  } catch (error) {
+    console.error('fetchProductDailyPnl Error:', error);
+    return { pnlMap: {}, latestDate: '', prevDate: '' };
+  }
+}
+
+/**
+ * 유형(type1)별 Daily PnL 요약
+ */
+export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
+  noStore();
+
+  try {
+    const datesResult = await sql`
+      SELECT DISTINCT std_dt FROM breakdownprc WHERE tp = 'MTM'
+      ORDER BY std_dt DESC LIMIT 2
+    `;
+    if (datesResult.rows.length < 2) return [];
+    const latestDate = String(datesResult.rows[0].std_dt);
+    const prevDate = String(datesResult.rows[1].std_dt);
+
+    const result = await sql`
+      SELECT
+        COALESCE(NULLIF(s.type1, ''), '기타') AS type1,
+        COUNT(DISTINCT b1.obj_cd) AS count,
+        SUM(b1.avg_prc - b2.avg_prc) AS total_daily_pnl,
+        COALESCE(SUM(e.coupon_amt), 0) AS total_coupon
+      FROM breakdownprc b1
+      JOIN breakdownprc b2
+        ON b1.obj_cd = b2.obj_cd AND b1.sp_num = b2.sp_num AND b2.tp = 'MTM'
+      JOIN strucprdp s ON s.obj_cd = b1.obj_cd
+      LEFT JOIN (
+        SELECT obj_cd, SUM(amt) AS coupon_amt
+        FROM excpnp WHERE pay_dt = ${latestDate}
+        GROUP BY obj_cd
+      ) e ON e.obj_cd = b1.obj_cd
+      WHERE b1.tp = 'MTM'
+        AND b1.std_dt = ${latestDate}
+        AND b2.std_dt = ${prevDate}
+        AND s.fnd_cd = '10206020'
+        AND s.tp != '자체발행'
+      GROUP BY COALESCE(NULLIF(s.type1, ''), '기타')
+      ORDER BY ABS(SUM(b1.avg_prc - b2.avg_prc)) DESC
+    `;
+
+    return result.rows.map((r) => ({
+      type1: String(r.type1),
+      count: Number(r.count),
+      total_daily_pnl: Number(r.total_daily_pnl),
+      total_coupon: Number(r.total_coupon),
+      total_pnl: Number(r.total_daily_pnl) + Number(r.total_coupon),
+    }));
+  } catch (error) {
+    console.error('fetchPnlSummaryByType Error:', error);
+    return [];
   }
 }
