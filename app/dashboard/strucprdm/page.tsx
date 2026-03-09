@@ -19,6 +19,7 @@ import {
   fetchFilteredStrucprdp,
   fetchProductDailyPnl,
   fetchPnlSummaryByType,
+  fetchUsdMarRates,
 } from '@/app/lib/data';
 
 export const metadata: Metadata = {
@@ -121,11 +122,12 @@ async function StrucprdmTableWrapper({
   query: string;
   callFilter: string;
 }) {
-  const [summary, accintRates, products, pnlData] = await Promise.all([
+  const [summary, accintRates, products, pnlData, marRates] = await Promise.all([
     fetchStrucprdpSummary(),
     fetchLatestAccintRates(),
     fetchFilteredStrucprdp(query, 1, callFilter),
     fetchProductDailyPnl(),
+    fetchUsdMarRates(),
   ]);
   const usdKrwRate = summary?.usdKrwRate ?? 1450;
   return (
@@ -134,6 +136,7 @@ async function StrucprdmTableWrapper({
       usdKrwRate={usdKrwRate}
       accintRates={accintRates}
       pnlMap={pnlData.pnlMap}
+      marRates={marRates}
     />
   );
 }

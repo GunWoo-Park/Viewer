@@ -11,11 +11,13 @@ export default function ClickableStrucprdpTable({
   usdKrwRate,
   accintRates,
   pnlMap = {},
+  marRates = {},
 }: {
   products: Strucprdp[];
   usdKrwRate: number;
   accintRates: Record<string, { couponRate: number | null; fundRate: number | null }>;
   pnlMap?: Record<string, ProductDailyPnl>;
+  marRates?: Record<string, number>;
 }) {
   const [selected, setSelected] = useState<{ eff_dt: string; curr: string } | null>(null);
   const [pnlObjCd, setPnlObjCd] = useState<string | null>(null);
@@ -27,6 +29,7 @@ export default function ClickableStrucprdpTable({
         usdKrwRate={usdKrwRate}
         accintRates={accintRates}
         pnlMap={pnlMap}
+        marRates={marRates}
         onRowClick={(eff_dt, curr) => setSelected({ eff_dt, curr })}
         onPnlClick={(objCd) => setPnlObjCd(objCd)}
       />

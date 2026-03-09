@@ -339,3 +339,22 @@ CREATE TABLE IF NOT EXISTS breakdownprc (
   updated_at TIMESTAMP,
   UNIQUE(obj_cd, sp_num, tp, std_dt)
 );
+
+-- =============================================
+-- 6. 기초자산 시세 테이블 (FX/Index)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS eq_unasp (
+  id SERIAL PRIMARY KEY,
+  std_dt VARCHAR(8) NOT NULL,
+  unas_id VARCHAR(50) NOT NULL,
+  reg_dtm TIMESTAMP,
+  regr_id VARCHAR(50),
+  mdfy_dtm TIMESTAMP,
+  mdfyr_id VARCHAR(50),
+  clprc_val DOUBLE PRECISION DEFAULT 0,
+  divd_rt DOUBLE PRECISION DEFAULT 0,
+  aply_qnto_val DOUBLE PRECISION DEFAULT 0,
+  vltl_val DOUBLE PRECISION DEFAULT 0,
+  UNIQUE(std_dt, unas_id)
+);

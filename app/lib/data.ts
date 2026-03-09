@@ -965,6 +965,66 @@ export async function fetchGappingBtbDelta(): Promise<GappingDeltaSummary> {
   }
 }
 
+/**
+ * USD 종목별 발행일(eff_dt) -1 영업일의 USD/KRW MAR 환율 조회
+ * eq_unasp 테이블에서 unas_id='USD/KRW_MAR' 기준
+ * 반환: { obj_cd → mar_rate }
+ */
+export async function fetchUsdMarRates(): Promise<Record<string, number>> {
+  noStore();
+
+  try {
+    // USD 종목의 eff_dt 목록
+    const products = await sql`
+      SELECT obj_cd, eff_dt FROM strucprdp
+      WHERE curr = 'USD' AND fnd_cd = '10206020' AND tp != '자체발행'
+    `;
+
+    if (products.rows.length === 0) return {};
+
+    // 모든 USD/KRW_MAR 데이터 가져오기 (eff_dt -1 영업일 매칭용)
+    const marData = await sql`
+      SELECT std_dt, clprc_val FROM eq_unasp
+      WHERE unas_id = 'USD/KRW_MAR'
+      ORDER BY std_dt ASC
+    `;
+
+    // std_dt 배열로 변환 (영업일 목록)
+    const marMap: Record<string, number> = {};
+    const dates: string[] = [];
+    for (const r of marData.rows) {
+      const dt = String(r.std_dt);
+      marMap[dt] = Number(r.clprc_val);
+      dates.push(dt);
+    }
+
+    // 각 종목의 eff_dt -1 영업일 MAR 찾기
+    const result: Record<string, number> = {};
+    for (const p of products.rows) {
+      const objCd = String(p.obj_cd);
+      const effDt = String(p.eff_dt);
+
+      // eff_dt보다 작은 가장 큰 날짜 = -1 영업일
+      let prevBizDay: string | null = null;
+      for (let i = dates.length - 1; i >= 0; i--) {
+        if (dates[i] < effDt) {
+          prevBizDay = dates[i];
+          break;
+        }
+      }
+
+      if (prevBizDay && marMap[prevBizDay]) {
+        result[objCd] = marMap[prevBizDay];
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error('fetchUsdMarRates Error:', error);
+    return {};
+  }
+}
+
 // =============================================
 // PnL 관련 함수 (breakdownprc + excpnp)
 // =============================================

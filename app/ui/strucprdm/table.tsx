@@ -20,24 +20,32 @@ function formatUSD(amount: number): string {
   return `$${amount.toLocaleString('en-US')}`;
 }
 
-// 명목금액 표시 컴포넌트: USD는 원화환산 메인 + (달러) 작게 표시
+// 명목금액 표시 컴포넌트: USD는 MAR 환율 기준 원화환산 + (달러) 작게 표시
 function NotionalDisplay({
   notn,
   curr,
   usdKrwRate,
+  marRate,
 }: {
   notn: number;
   curr: string;
   usdKrwRate: number;
+  marRate?: number;
 }) {
   if (curr === 'USD') {
-    const krwConverted = notn * usdKrwRate;
+    const rate = marRate || usdKrwRate;
+    const krwConverted = notn * rate;
     return (
       <div className="text-right">
         <span className="font-medium">{formatKRW(krwConverted)}</span>
         <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">
           ({formatUSD(notn)})
         </span>
+        {marRate && (
+          <div className="text-[9px] text-gray-400 dark:text-gray-500">
+            MAR {marRate.toFixed(1)}
+          </div>
+        )}
       </div>
     );
   }
@@ -135,6 +143,7 @@ export default function StrucprdpTable({
   usdKrwRate = 1450,
   accintRates = {},
   pnlMap = {},
+  marRates = {},
   onRowClick,
   onPnlClick,
 }: {
@@ -142,6 +151,7 @@ export default function StrucprdpTable({
   usdKrwRate?: number;
   accintRates?: Record<string, { couponRate: number | null; fundRate: number | null }>;
   pnlMap?: Record<string, ProductDailyPnl>;
+  marRates?: Record<string, number>;
   onRowClick?: (eff_dt: string, curr: string) => void;
   onPnlClick?: (objCd: string) => void;
 }) {
@@ -174,7 +184,7 @@ export default function StrucprdpTable({
               </div>
               <div>
                 <p className="text-gray-400 dark:text-gray-500 text-xs">명목금액</p>
-                <NotionalDisplay notn={p.notn} curr={p.curr} usdKrwRate={usdKrwRate} />
+                <NotionalDisplay notn={p.notn} curr={p.curr} usdKrwRate={usdKrwRate} marRate={marRates[p.obj_cd]} />
               </div>
               <div>
                 <p className="text-gray-400 dark:text-gray-500 text-xs">수수료</p>
@@ -271,7 +281,7 @@ export default function StrucprdpTable({
                   <CurrBadge value={p.curr} />
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-right">
-                  <NotionalDisplay notn={p.notn} curr={p.curr} usdKrwRate={usdKrwRate} />
+                  <NotionalDisplay notn={p.notn} curr={p.curr} usdKrwRate={usdKrwRate} marRate={marRates[p.obj_cd]} />
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-xs font-medium">
                   {(() => {
