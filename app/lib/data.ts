@@ -782,6 +782,12 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
       return { rows: [], usdKrwRate: 1450, latestDate: '', prevDate: '' };
     }
 
+    // dual MAR: 당일-1영업일, 전일-1영업일 각각 조회
+    const [latestMar, prevMar] = await Promise.all([
+      getMarRateBeforeDate(latestDate),
+      getMarRateBeforeDate(prevDate),
+    ]);
+
     const [data, fxResult] = await Promise.all([
       sql`
         WITH full_sets AS (
@@ -857,19 +863,31 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
       ? Number(fxResult.rows[0].close_value) : 1450;
 
     const rows: TpSetRow[] = data.rows.map((row) => {
-      const mtm = Number(row.total_mtm) || 0;
-      const prev = Number(row.prev_mtm) || 0;
-      const carryLatest = Number(row.carry_mtm_latest) || 0;
-      const carryPrev = Number(row.carry_mtm_prev) || 0;
+      const curr = row.curr as string;
+      let mtm = Number(row.total_mtm) || 0;
+      let prev = Number(row.prev_mtm) || 0;
+      let carryLatest = Number(row.carry_mtm_latest) || 0;
+      let carryPrev = Number(row.carry_mtm_prev) || 0;
+      let couponAmt = Number(row.total_coupon) || 0;
+
+      // USD: 각 날짜별 MAR로 나눠서 달러 기준 변환
+      if (curr === 'USD' && latestMar > 0 && prevMar > 0) {
+        mtm = mtm / latestMar;
+        prev = prev / prevMar;
+        carryLatest = carryLatest / latestMar;
+        carryPrev = carryPrev / prevMar;
+        couponAmt = couponAmt / latestMar;
+      }
+
       return {
-        curr: row.curr as string,
+        curr,
         assetCount: Number(row.asset_cnt),
         assetNotional: Number(row.asset_notn),
         totalMtm: mtm,
         prevMtm: prev,
         mtmChange: mtm - prev,
         carryMtmChange: carryLatest - carryPrev,
-        couponAmt: Number(row.total_coupon) || 0,
+        couponAmt,
         avgCarry: row.avg_carry != null ? Number(row.avg_carry) : null,
       };
     });
@@ -1061,15 +1079,28 @@ export async function fetchUsdMarRates(): Promise<Record<string, number>> {
 // =============================================
 
 /**
+ * 특정 날짜 -1 영업일의 USD/KRW_MAR 환율 조회 헬퍼
+ */
+async function getMarRateBeforeDate(targetDate: string): Promise<number> {
+  const r = await sql`
+    SELECT clprc_val FROM eq_unasp
+    WHERE unas_id = 'USD/KRW_MAR' AND std_dt < ${targetDate}
+    ORDER BY std_dt DESC LIMIT 1
+  `;
+  return r.rows.length > 0 ? Number(r.rows[0].clprc_val) : 0;
+}
+
+/**
  * 종목별 Daily PnL 조회
- * 전체 TP(자산/MTM/캐리) 합산: breakdownprc 최근일 - 전일 avg_prc
- * 쿠폰: excpnp에서 최근일 pay_dt에 해당하는 amt 합계
+ * USD PnL = (당일가격/당일-1MAR) - (전일가격/전일-1MAR)
+ * USD 쿠폰 = coupon_amt / (pay_dt-1영업일 MAR)
  */
 export async function fetchProductDailyPnl(): Promise<{
   pnlMap: Record<string, ProductDailyPnl>;
   latestDate: string;
   prevDate: string;
-  usdMarRate: number;
+  latestMar: number;
+  prevMar: number;
 }> {
   noStore();
 
@@ -1080,18 +1111,16 @@ export async function fetchProductDailyPnl(): Promise<{
       ORDER BY std_dt DESC LIMIT 2
     `;
     if (datesResult.rows.length < 2) {
-      return { pnlMap: {}, latestDate: '', prevDate: '', usdMarRate: 0 };
+      return { pnlMap: {}, latestDate: '', prevDate: '', latestMar: 0, prevMar: 0 };
     }
     const latestDate = String(datesResult.rows[0].std_dt);
     const prevDate = String(datesResult.rows[1].std_dt);
 
-    // 기준일(latestDate) -1 영업일의 USD/KRW_MAR 환율 조회
-    const marResult = await sql`
-      SELECT clprc_val FROM eq_unasp
-      WHERE unas_id = 'USD/KRW_MAR' AND std_dt < ${latestDate}
-      ORDER BY std_dt DESC LIMIT 1
-    `;
-    const usdMarRate = marResult.rows.length > 0 ? Number(marResult.rows[0].clprc_val) : 0;
+    // 당일-1영업일 MAR, 전일-1영업일 MAR 각각 조회
+    const [latestMar, prevMar] = await Promise.all([
+      getMarRateBeforeDate(latestDate),
+      getMarRateBeforeDate(prevDate),
+    ]);
 
     // 종목별 가격 변동 + 통화 — 전체 TP(자산/MTM/캐리) 합산
     const mtmResult = await sql`
@@ -1099,8 +1128,7 @@ export async function fetchProductDailyPnl(): Promise<{
         b1.obj_cd,
         s.curr,
         SUM(b1.avg_prc) AS today_mtm,
-        SUM(b2.avg_prc) AS prev_mtm,
-        SUM(b1.avg_prc) - SUM(b2.avg_prc) AS daily_pnl
+        SUM(b2.avg_prc) AS prev_mtm
       FROM breakdownprc b1
       JOIN breakdownprc b2
         ON b1.obj_cd = b2.obj_cd
@@ -1129,34 +1157,43 @@ export async function fetchProductDailyPnl(): Promise<{
     for (const r of mtmResult.rows) {
       const objCd = String(r.obj_cd);
       const curr = String(r.curr);
-      let dailyPnl = Number(r.daily_pnl);
-      let couponAmt = couponMap[objCd] || 0;
-      let todayMtm = Number(r.today_mtm);
-      let prevMtm = Number(r.prev_mtm);
+      const todayMtmRaw = Number(r.today_mtm);
+      const prevMtmRaw = Number(r.prev_mtm);
+      const couponAmtRaw = couponMap[objCd] || 0;
 
-      // USD 종목: MAR 환율로 나눠서 달러 기준 PnL
-      if (curr === 'USD' && usdMarRate > 0) {
-        dailyPnl = dailyPnl / usdMarRate;
-        couponAmt = couponAmt / usdMarRate;
-        todayMtm = todayMtm / usdMarRate;
-        prevMtm = prevMtm / usdMarRate;
+      let todayMtm: number;
+      let prevMtmVal: number;
+      let couponAmt: number;
+
+      // USD 종목: 각 날짜의 MAR로 나눠서 달러 기준
+      // PnL = (당일가격/당일-1MAR) - (전일가격/전일-1MAR)
+      if (curr === 'USD' && latestMar > 0 && prevMar > 0) {
+        todayMtm = todayMtmRaw / latestMar;
+        prevMtmVal = prevMtmRaw / prevMar;
+        couponAmt = couponAmtRaw / latestMar;
+      } else {
+        todayMtm = todayMtmRaw;
+        prevMtmVal = prevMtmRaw;
+        couponAmt = couponAmtRaw;
       }
+
+      const dailyPnl = todayMtm - prevMtmVal;
 
       pnlMap[objCd] = {
         obj_cd: objCd,
         curr,
         today_mtm: todayMtm,
-        prev_mtm: prevMtm,
+        prev_mtm: prevMtmVal,
         daily_pnl: dailyPnl,
         coupon_amt: couponAmt,
         total_pnl: dailyPnl + couponAmt,
       };
     }
 
-    return { pnlMap, latestDate, prevDate, usdMarRate };
+    return { pnlMap, latestDate, prevDate, latestMar, prevMar };
   } catch (error) {
     console.error('fetchProductDailyPnl Error:', error);
-    return { pnlMap: {}, latestDate: '', prevDate: '', usdMarRate: 0 };
+    return { pnlMap: {}, latestDate: '', prevDate: '', latestMar: 0, prevMar: 0 };
   }
 }
 
@@ -1175,20 +1212,20 @@ export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
     const latestDate = String(datesResult.rows[0].std_dt);
     const prevDate = String(datesResult.rows[1].std_dt);
 
-    // 기준일 -1 영업일의 USD/KRW_MAR 환율
-    const marResult = await sql`
-      SELECT clprc_val FROM eq_unasp
-      WHERE unas_id = 'USD/KRW_MAR' AND std_dt < ${latestDate}
-      ORDER BY std_dt DESC LIMIT 1
-    `;
-    const usdMarRate = marResult.rows.length > 0 ? Number(marResult.rows[0].clprc_val) : 0;
+    // 당일-1영업일 MAR, 전일-1영업일 MAR 각각 조회
+    const [latestMar, prevMar] = await Promise.all([
+      getMarRateBeforeDate(latestDate),
+      getMarRateBeforeDate(prevDate),
+    ]);
 
+    // 당일/전일 MTM을 별도 컬럼으로 가져옴 (dual MAR 적용 위해)
     const result = await sql`
       SELECT
         s.curr,
         COALESCE(NULLIF(s.type1, ''), '기타') AS type1,
         COUNT(DISTINCT b1.obj_cd) AS count,
-        SUM(b1.avg_prc - b2.avg_prc) AS total_daily_pnl,
+        SUM(b1.avg_prc) AS today_mtm,
+        SUM(b2.avg_prc) AS prev_mtm,
         COALESCE(SUM(e.coupon_amt), 0) AS total_coupon
       FROM breakdownprc b1
       JOIN breakdownprc b2
@@ -1206,19 +1243,23 @@ export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
         AND s.fnd_cd = '10206020'
         AND s.tp != '자체발행'
       GROUP BY s.curr, COALESCE(NULLIF(s.type1, ''), '기타')
-      ORDER BY s.curr, ABS(SUM(b1.avg_prc - b2.avg_prc)) DESC
+      ORDER BY s.curr, ABS(SUM(b1.avg_prc) - SUM(b2.avg_prc)) DESC
     `;
 
     return result.rows.map((r) => {
       const curr = String(r.curr);
-      let totalDailyPnl = Number(r.total_daily_pnl);
+      let todayMtm = Number(r.today_mtm);
+      let prevMtm = Number(r.prev_mtm);
       let totalCoupon = Number(r.total_coupon);
 
-      // USD 통화: MAR 환율로 나눠서 달러 기준
-      if (curr === 'USD' && usdMarRate > 0) {
-        totalDailyPnl = totalDailyPnl / usdMarRate;
-        totalCoupon = totalCoupon / usdMarRate;
+      // USD: 각 날짜별 MAR로 나눈 뒤 차이 = (당일/당일-1MAR) - (전일/전일-1MAR)
+      if (curr === 'USD' && latestMar > 0 && prevMar > 0) {
+        todayMtm = todayMtm / latestMar;
+        prevMtm = prevMtm / prevMar;
+        totalCoupon = totalCoupon / latestMar;
       }
+
+      const totalDailyPnl = todayMtm - prevMtm;
 
       return {
         curr,
