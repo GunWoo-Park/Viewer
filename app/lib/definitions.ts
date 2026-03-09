@@ -179,7 +179,9 @@ export type StrucprdpSummary = {
   usdAssetCount: number;
   krwAssetNotional: number;
   usdAssetNotional: number;
-  usdKrwRate: number; // 최신 USD/KRW 환율
+  usdKrwRate: number;              // 최신 USD/KRW 시장환율
+  usdAssetNotionalMarKrw: number;  // USD 자산 MAR 환율 기준 원화환산 합계
+  usdMarWeightedRate: number;      // 노셔널 가중평균 MAR 환율
   typeDistribution: {
     struct_type: string;
     curr: string;

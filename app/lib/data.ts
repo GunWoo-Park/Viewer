@@ -463,6 +463,27 @@ export async function fetchStrucprdpSummary(): Promise<StrucprdpSummary | null> 
       ? Number(fxData.rows[0].close_value)
       : 1450;
 
+    // USD 자산 상품별 MAR 환율 기반 원화환산 합계
+    const marRates = await fetchUsdMarRates();
+    const usdProducts = await sql`
+      SELECT obj_cd, notn FROM strucprdp
+      WHERE curr = 'USD' AND asst_lblt = '자산'
+        AND (call_yn = 'N' OR call_yn IS NULL)
+        AND fnd_cd = '10206020' AND tp != '자체발행'
+    `;
+    let usdAssetNotionalMarKrw = 0;
+    let usdNotnForWeighted = 0;
+    for (const p of usdProducts.rows) {
+      const objCd = String(p.obj_cd);
+      const notn = Number(p.notn);
+      const mar = marRates[objCd] || usdKrwRate;
+      usdAssetNotionalMarKrw += notn * mar;
+      usdNotnForWeighted += notn;
+    }
+    const usdMarWeightedRate = usdNotnForWeighted > 0
+      ? usdAssetNotionalMarKrw / usdNotnForWeighted
+      : usdKrwRate;
+
     return {
       totalCount: Number(countData.rows[0].total),
       krwCount: Number(countData.rows[0].krw_count),
@@ -472,6 +493,8 @@ export async function fetchStrucprdpSummary(): Promise<StrucprdpSummary | null> 
       krwAssetNotional: Number(countData.rows[0].krw_asset_notional),
       usdAssetNotional: Number(countData.rows[0].usd_asset_notional),
       usdKrwRate,
+      usdAssetNotionalMarKrw,
+      usdMarWeightedRate,
       typeDistribution: typeData.rows.map((r) => ({
         struct_type: r.struct_type,
         curr: r.curr || 'KRW',

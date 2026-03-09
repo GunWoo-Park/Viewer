@@ -312,8 +312,10 @@ export default function SummaryCards({
   carryData?: CarryAggregation;
   tpData?: TpAggregation;
 }) {
-  const usdInKrw = summary.usdAssetNotional * summary.usdKrwRate;
-  const rateDisplay = summary.usdKrwRate.toLocaleString('ko-KR', {
+  // MAR 환율 기준 원화환산 (종목별 eff_dt -1영업일 MAR 가중평균)
+  const usdInKrw = summary.usdAssetNotionalMarKrw || summary.usdAssetNotional * summary.usdKrwRate;
+  const marRate = summary.usdMarWeightedRate || summary.usdKrwRate;
+  const rateDisplay = marRate.toLocaleString('ko-KR', {
     maximumFractionDigits: 1,
   });
 
@@ -337,7 +339,7 @@ export default function SummaryCards({
         title="USD 상품 (자산)"
         value={formatKRW(usdInKrw)}
         secondaryValue={formatUSD(summary.usdAssetNotional)}
-        subValue={`${summary.usdAssetCount}건 · 적용환율 ${rateDisplay}`}
+        subValue={`${summary.usdAssetCount}건 · MAR 가중평균 ${rateDisplay}`}
         icon={CurrencyDollarIcon}
         color="bg-violet-500"
       />
