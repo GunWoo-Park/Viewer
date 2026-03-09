@@ -145,6 +145,9 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
     usd && usd.avgCarry != null ? usd.assetNotional * data.usdKrwRate * usd.avgCarry : 0;
   const totalAvgCarry = totalNotnKrw > 0 ? (krwWc + usdWcKrw) / totalNotnKrw : null;
 
+  // 전체 실현이자
+  const totalCoupon = (krw?.couponAmt || 0) + (usd?.couponAmt || 0);
+
   type RowData = {
     label: string;
     badge?: string;
@@ -155,6 +158,7 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
     mtm: number;
     mtmChange: number;
     carryMtmChange: number;
+    couponAmt: number;
     carry: number | null;
     isBold?: boolean;
   };
@@ -171,6 +175,7 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
       mtm: krw.totalMtm,
       mtmChange: krw.mtmChange,
       carryMtmChange: krw.carryMtmChange,
+      couponAmt: krw.couponAmt,
       carry: krw.avgCarry,
     });
   }
@@ -186,6 +191,7 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
       mtm: usd.totalMtm,
       mtmChange: usd.mtmChange,
       carryMtmChange: usd.carryMtmChange,
+      couponAmt: usd.couponAmt,
       carry: usd.avgCarry,
     });
   }
@@ -197,6 +203,7 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
     mtm: totalMtm,
     mtmChange: totalMtmChange,
     carryMtmChange: totalCarryMtmChange,
+    couponAmt: totalCoupon,
     carry: totalAvgCarry,
     isBold: true,
   });
@@ -211,7 +218,7 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
           <p className="text-sm text-gray-500 dark:text-gray-400">
             캐리스왑 매칭 집계
             <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
-              (자산 노셔널 기준, MTM은 set 합산)
+              (자산 노셔널 기준, MTM은 set 합산, 실현이자 포함)
             </span>
           </p>
           {data.latestDate && (
@@ -232,6 +239,7 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
               <th className="py-1.5 text-right font-medium px-2">MTM (set 합)</th>
               <th className="py-1.5 text-right font-medium px-2">일간 변동</th>
               <th className="py-1.5 text-right font-medium px-2">캐리 변동</th>
+              <th className="py-1.5 text-right font-medium px-2">실현이자</th>
               <th className="py-1.5 text-right font-medium px-2">평균 Carry</th>
             </tr>
           </thead>
@@ -273,6 +281,9 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
                   </td>
                   <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.carryMtmChange)}`}>
                     {fmtMtm(row.carryMtmChange)}
+                  </td>
+                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.couponAmt)}`}>
+                    {row.couponAmt !== 0 ? fmtMtm(row.couponAmt) : <span className="text-gray-300 dark:text-gray-600">-</span>}
                   </td>
                   <td className="py-2 px-2 text-right">
                     <span className={`font-mono font-bold ${carryColor(row.carry)}`}>

@@ -731,6 +731,7 @@ export type TpSetRow = {
   prevMtm: number;         // 전영업일 MTM 합계 (원화)
   mtmChange: number;       // 전체 set 가격변동 (최근일 - 전영업일)
   carryMtmChange: number;  // 캐리 전용 가격변동 (최근일 - 전영업일)
+  couponAmt: number;       // 실현이자 (excpnp 최근일)
   avgCarry: number | null; // 자산 기준 가중평균 캐리
 };
 
@@ -745,7 +746,20 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
   noStore();
 
   try {
-    const [data, fxResult, datesResult] = await Promise.all([
+    // breakdownprc 기준 최근 2영업일
+    const datesResult = await sql`
+      SELECT DISTINCT std_dt FROM breakdownprc
+      ORDER BY std_dt DESC LIMIT 2
+    `;
+    const dates = datesResult.rows.map((r) => String(r.std_dt)).sort();
+    const latestDate = dates.length > 0 ? dates[dates.length - 1] : '';
+    const prevDate = dates.length > 1 ? dates[0] : '';
+
+    if (!latestDate || !prevDate) {
+      return { rows: [], usdKrwRate: 1450, latestDate: '', prevDate: '' };
+    }
+
+    const [data, fxResult] = await Promise.all([
       sql`
         WITH full_sets AS (
           SELECT eff_dt, curr
@@ -763,31 +777,33 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
           WHERE eval_mdul_cd = '3'
           ORDER BY obj_cd, leg_tp, std_dt DESC
         ),
-        top2dates AS (
-          SELECT DISTINCT std_dt FROM swap_prc
-          WHERE fnd_cd = '10206020'
-          ORDER BY std_dt DESC LIMIT 2
+        bprc_latest AS (
+          SELECT obj_cd, SUM(avg_prc) AS avg_prc
+          FROM breakdownprc
+          WHERE std_dt = ${latestDate}
+          GROUP BY obj_cd
         ),
-        swap_latest AS (
-          SELECT obj_cd, avg_prc
-          FROM swap_prc
-          WHERE fnd_cd = '10206020'
-            AND std_dt = (SELECT MAX(std_dt) FROM top2dates)
+        bprc_prev AS (
+          SELECT obj_cd, SUM(avg_prc) AS avg_prc
+          FROM breakdownprc
+          WHERE std_dt = ${prevDate}
+          GROUP BY obj_cd
         ),
-        swap_prev AS (
-          SELECT obj_cd, avg_prc
-          FROM swap_prc
-          WHERE fnd_cd = '10206020'
-            AND std_dt = (SELECT MIN(std_dt) FROM top2dates)
+        coupon_latest AS (
+          SELECT obj_cd, SUM(amt) AS coupon_amt
+          FROM excpnp
+          WHERE pay_dt = ${latestDate}
+          GROUP BY obj_cd
         )
         SELECT
           p.curr,
           COUNT(*) FILTER (WHERE p.tp = '자산') AS asset_cnt,
           SUM(p.notn) FILTER (WHERE p.tp = '자산') AS asset_notn,
-          SUM(COALESCE(sl.avg_prc, 0)) AS total_mtm,
-          SUM(COALESCE(sp.avg_prc, 0)) AS prev_mtm,
-          SUM(COALESCE(sl.avg_prc, 0)) FILTER (WHERE p.tp = '캐리') AS carry_mtm_latest,
-          SUM(COALESCE(sp.avg_prc, 0)) FILTER (WHERE p.tp = '캐리') AS carry_mtm_prev,
+          SUM(COALESCE(bl.avg_prc, 0)) AS total_mtm,
+          SUM(COALESCE(bp.avg_prc, 0)) AS prev_mtm,
+          SUM(COALESCE(bl.avg_prc, 0)) FILTER (WHERE p.tp = '캐리') AS carry_mtm_latest,
+          SUM(COALESCE(bp.avg_prc, 0)) FILTER (WHERE p.tp = '캐리') AS carry_mtm_prev,
+          COALESCE(SUM(cl.coupon_amt), 0) AS total_coupon,
           CASE WHEN SUM(p.notn) FILTER (WHERE p.tp = '자산') > 0
             THEN SUM(p.notn * (COALESCE(c.rate, 0) - COALESCE(f.rate, 0)))
                  FILTER (WHERE p.tp = '자산')
@@ -798,8 +814,9 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
         INNER JOIN full_sets fs ON fs.eff_dt = p.eff_dt AND fs.curr = p.curr
         LEFT JOIN latest_rates c ON c.obj_cd = p.obj_cd AND c.leg_tp = 'Coupon'
         LEFT JOIN latest_rates f ON f.obj_cd = p.obj_cd AND f.leg_tp = 'Fund'
-        LEFT JOIN swap_latest sl ON sl.obj_cd = p.obj_cd
-        LEFT JOIN swap_prev sp ON sp.obj_cd = p.obj_cd
+        LEFT JOIN bprc_latest bl ON bl.obj_cd = p.obj_cd
+        LEFT JOIN bprc_prev bp ON bp.obj_cd = p.obj_cd
+        LEFT JOIN coupon_latest cl ON cl.obj_cd = p.obj_cd
         WHERE p.fnd_cd = '10206020'
           AND p.tp IN ('자산','MTM','캐리')
           AND (p.call_yn = 'N' OR p.call_yn IS NULL)
@@ -811,20 +828,10 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
         WHERE ticker = 'USD/KRW' AND asset_class = 'FX'
         ORDER BY base_date DESC LIMIT 1
       `,
-      sql`
-        SELECT DISTINCT std_dt FROM swap_prc
-        WHERE fnd_cd = '10206020'
-        ORDER BY std_dt DESC LIMIT 2
-      `,
     ]);
 
     const usdKrwRate = fxResult.rows.length > 0
       ? Number(fxResult.rows[0].close_value) : 1450;
-
-    // 최근 2영업일 날짜
-    const dates = datesResult.rows.map((r) => r.std_dt as string).sort();
-    const latestDate = dates.length > 0 ? dates[dates.length - 1] : '';
-    const prevDate = dates.length > 1 ? dates[0] : '';
 
     const rows: TpSetRow[] = data.rows.map((row) => {
       const mtm = Number(row.total_mtm) || 0;
@@ -839,6 +846,7 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
         prevMtm: prev,
         mtmChange: mtm - prev,
         carryMtmChange: carryLatest - carryPrev,
+        couponAmt: Number(row.total_coupon) || 0,
         avgCarry: row.avg_carry != null ? Number(row.avg_carry) : null,
       };
     });
