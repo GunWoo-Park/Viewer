@@ -220,8 +220,9 @@ export type ProductDailyPnl = {
   total_pnl: number;      // daily_pnl + coupon_amt
 };
 
-// PnL 유형별 요약
+// PnL 통화×유형별 요약
 export type PnlSummaryByType = {
+  curr: string;
   type1: string;
   count: number;
   total_daily_pnl: number;

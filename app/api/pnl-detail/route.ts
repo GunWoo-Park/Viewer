@@ -24,14 +24,14 @@ export async function POST(request: Request) {
 
     const info = infoResult.rows[0];
 
-    // breakdownprc MTM 시계열 (sp_num별 합산)
+    // breakdownprc 시계열 — 전체 TP(자산/MTM/캐리) 합산
     const mtmResult = await sql`
       SELECT std_dt,
              SUM(kis_prc) AS kis_prc,
              SUM(kap_prc) AS kap_prc,
              SUM(avg_prc) AS avg_prc
       FROM breakdownprc
-      WHERE obj_cd = ${obj_cd} AND tp = 'MTM'
+      WHERE obj_cd = ${obj_cd}
       GROUP BY std_dt
       ORDER BY std_dt ASC
     `;

@@ -1,9 +1,9 @@
-// 유형별 Daily PnL 요약 카드
+// 통화 × 유형별 Daily PnL 요약 — 컴팩트 테이블 형태
 import { PnlSummaryByType } from '@/app/lib/definitions';
 
 function fmtAmt(v: number): string {
   const b = v / 100000000;
-  if (Math.abs(b) >= 1) {
+  if (Math.abs(b) >= 0.1) {
     return `${b >= 0 ? '+' : ''}${b.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
   }
   const m = v / 10000;
@@ -16,14 +16,14 @@ function amtColor(v: number): string {
   return 'text-gray-500 dark:text-gray-400';
 }
 
-// type1별 배경색
-const TYPE_BG: Record<string, string> = {
-  'Range Accrual': 'border-sky-500/30 bg-sky-50/50 dark:bg-sky-900/10',
-  Spread: 'border-amber-500/30 bg-amber-50/50 dark:bg-amber-900/10',
-  Floater: 'border-teal-500/30 bg-teal-50/50 dark:bg-teal-900/10',
-  InvF: 'border-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-900/10',
-  Power: 'border-orange-500/30 bg-orange-50/50 dark:bg-orange-900/10',
-  'Zero Callable': 'border-purple-500/30 bg-purple-50/50 dark:bg-purple-900/10',
+// 유형별 텍스트 색상
+const TYPE_COLOR: Record<string, string> = {
+  'Range Accrual': 'text-sky-700 dark:text-sky-300',
+  Spread: 'text-amber-700 dark:text-amber-300',
+  Floater: 'text-teal-700 dark:text-teal-300',
+  InvF: 'text-indigo-700 dark:text-indigo-300',
+  Power: 'text-orange-700 dark:text-orange-300',
+  'Zero Callable': 'text-purple-700 dark:text-purple-300',
 };
 
 export default function PnlSummaryCards({
@@ -35,76 +35,120 @@ export default function PnlSummaryCards({
 }) {
   if (summary.length === 0) return null;
 
+  const dateStr = latestDate
+    ? `${latestDate.slice(0, 4)}-${latestDate.slice(4, 6)}-${latestDate.slice(6, 8)}`
+    : '';
+
+  // 통화별 그룹
+  const currencies = ['KRW', 'USD'];
+  const byCurr: Record<string, PnlSummaryByType[]> = {};
+  for (const c of currencies) {
+    byCurr[c] = summary.filter((s) => s.curr === c);
+  }
+  // 기타 통화
+  const otherCurr = summary.filter((s) => !currencies.includes(s.curr));
+  if (otherCurr.length > 0) {
+    byCurr['기타'] = otherCurr;
+  }
+
   // 전체 합계
   const grandPnl = summary.reduce((s, r) => s + r.total_pnl, 0);
   const grandMtm = summary.reduce((s, r) => s + r.total_daily_pnl, 0);
   const grandCoupon = summary.reduce((s, r) => s + r.total_coupon, 0);
   const totalCount = summary.reduce((s, r) => s + r.count, 0);
 
-  const dateStr = latestDate
-    ? `${latestDate.slice(0, 4)}-${latestDate.slice(4, 6)}-${latestDate.slice(6, 8)}`
-    : '';
-
   return (
     <div className="mb-6">
-      <div className="flex items-baseline gap-3 mb-3">
+      <div className="flex items-baseline gap-3 mb-2">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Daily PnL</h2>
         {dateStr && (
           <span className="text-xs text-gray-400 dark:text-gray-500">{dateStr} 기준</span>
         )}
+        <span className={`text-lg font-bold font-mono ${amtColor(grandPnl)}`}>
+          {fmtAmt(grandPnl)}
+        </span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">
+          ({totalCount}종목 · MTM {fmtAmt(grandMtm)}{grandCoupon !== 0 ? ` + 쿠폰 ${fmtAmt(grandCoupon)}` : ''})
+        </span>
       </div>
 
-      {/* 전체 합계 */}
-      <div className="mb-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-gray-400 dark:text-gray-500">전체 ({totalCount}종목)</p>
-            <p className={`text-2xl font-bold font-mono ${amtColor(grandPnl)}`}>
-              {fmtAmt(grandPnl)}
-            </p>
-          </div>
-          <div className="flex gap-6 text-right">
-            <div>
-              <p className="text-xs text-gray-400 dark:text-gray-500">MTM 변동</p>
-              <p className={`text-sm font-semibold font-mono ${amtColor(grandMtm)}`}>
-                {fmtAmt(grandMtm)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 dark:text-gray-500">쿠폰</p>
-              <p className={`text-sm font-semibold font-mono ${amtColor(grandCoupon)}`}>
-                {grandCoupon !== 0 ? fmtAmt(grandCoupon) : '-'}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* 통화별 테이블 가로 배치 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {Object.entries(byCurr).map(([curr, items]) => {
+          if (items.length === 0) return null;
+          const currTotal = items.reduce((s, r) => s + r.total_pnl, 0);
+          const currMtm = items.reduce((s, r) => s + r.total_daily_pnl, 0);
+          const currCoupon = items.reduce((s, r) => s + r.total_coupon, 0);
+          const currCount = items.reduce((s, r) => s + r.count, 0);
 
-      {/* 유형별 카드 */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {summary.map((s) => {
-          const bg = TYPE_BG[s.type1] || 'border-gray-300/30 bg-gray-50/50 dark:bg-gray-800/50';
           return (
-            <div key={s.type1} className={`rounded-lg border p-3 ${bg}`}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  {s.type1}
-                </span>
-                <span className="text-[10px] text-gray-400 dark:text-gray-500">{s.count}종목</span>
-              </div>
-              <p className={`text-base font-bold font-mono ${amtColor(s.total_pnl)}`}>
-                {fmtAmt(s.total_pnl)}
-              </p>
-              <div className="mt-1 flex gap-3 text-[10px]">
-                <span className={`font-mono ${amtColor(s.total_daily_pnl)}`}>
-                  MTM {fmtAmt(s.total_daily_pnl)}
-                </span>
-                {s.total_coupon !== 0 && (
-                  <span className={`font-mono ${amtColor(s.total_coupon)}`}>
-                    쿠폰 {fmtAmt(s.total_coupon)}
+            <div
+              key={curr}
+              className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
+            >
+              {/* 통화 헤더 */}
+              <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                    curr === 'KRW'
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                      : 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
+                  }`}>
+                    {curr}
                   </span>
-                )}
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">{currCount}종목</span>
+                </div>
+                <span className={`text-sm font-bold font-mono ${amtColor(currTotal)}`}>
+                  {fmtAmt(currTotal)}
+                </span>
               </div>
+
+              {/* 유형별 행 */}
+              <table className="w-full text-xs">
+                <tbody>
+                  {items.map((s) => (
+                    <tr
+                      key={s.type1}
+                      className="border-b border-gray-100 dark:border-gray-800 last:border-0"
+                    >
+                      <td className="pl-3 py-1">
+                        <span className={`font-medium ${TYPE_COLOR[s.type1] || 'text-gray-600 dark:text-gray-400'}`}>
+                          {s.type1}
+                        </span>
+                        <span className="ml-1 text-[10px] text-gray-400">{s.count}</span>
+                      </td>
+                      <td className={`text-right font-mono font-semibold pr-1 ${amtColor(s.total_daily_pnl)}`}>
+                        {fmtAmt(s.total_daily_pnl)}
+                      </td>
+                      <td className="text-right pr-3 w-20">
+                        {s.total_coupon !== 0 ? (
+                          <span className={`font-mono text-[10px] ${amtColor(s.total_coupon)}`}>
+                            cpn {fmtAmt(s.total_coupon)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 dark:text-gray-600">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {/* 통화 소계 */}
+                  <tr className="bg-gray-50/50 dark:bg-gray-800/50">
+                    <td className="pl-3 py-1 text-gray-500 dark:text-gray-400 font-medium">소계</td>
+                    <td className={`text-right font-mono font-bold pr-1 ${amtColor(currMtm)}`}>
+                      {fmtAmt(currMtm)}
+                    </td>
+                    <td className="text-right pr-3">
+                      {currCoupon !== 0 ? (
+                        <span className={`font-mono text-[10px] font-semibold ${amtColor(currCoupon)}`}>
+                          cpn {fmtAmt(currCoupon)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 dark:text-gray-600">-</span>
+                      )}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           );
         })}

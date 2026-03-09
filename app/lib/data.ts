@@ -971,7 +971,7 @@ export async function fetchGappingBtbDelta(): Promise<GappingDeltaSummary> {
 
 /**
  * 종목별 Daily PnL 조회
- * MTM: breakdownprc에서 최근일 avg_prc - 전일 avg_prc
+ * 전체 TP(자산/MTM/캐리) 합산: breakdownprc 최근일 - 전일 avg_prc
  * 쿠폰: excpnp에서 최근일 pay_dt에 해당하는 amt 합계
  */
 export async function fetchProductDailyPnl(): Promise<{
@@ -984,7 +984,7 @@ export async function fetchProductDailyPnl(): Promise<{
   try {
     // 최근 2영업일 조회
     const datesResult = await sql`
-      SELECT DISTINCT std_dt FROM breakdownprc WHERE tp = 'MTM'
+      SELECT DISTINCT std_dt FROM breakdownprc
       ORDER BY std_dt DESC LIMIT 2
     `;
     if (datesResult.rows.length < 2) {
@@ -993,7 +993,7 @@ export async function fetchProductDailyPnl(): Promise<{
     const latestDate = String(datesResult.rows[0].std_dt);
     const prevDate = String(datesResult.rows[1].std_dt);
 
-    // 종목별 MTM 변동 (sp_num별로 합산)
+    // 종목별 가격 변동 — 전체 TP(자산/MTM/캐리) 합산
     const mtmResult = await sql`
       SELECT
         b1.obj_cd,
@@ -1002,9 +1002,10 @@ export async function fetchProductDailyPnl(): Promise<{
         SUM(b1.avg_prc) - SUM(b2.avg_prc) AS daily_pnl
       FROM breakdownprc b1
       JOIN breakdownprc b2
-        ON b1.obj_cd = b2.obj_cd AND b1.sp_num = b2.sp_num AND b2.tp = 'MTM'
-      WHERE b1.tp = 'MTM'
-        AND b1.std_dt = ${latestDate}
+        ON b1.obj_cd = b2.obj_cd
+        AND b1.sp_num = b2.sp_num
+        AND b1.tp = b2.tp
+      WHERE b1.std_dt = ${latestDate}
         AND b2.std_dt = ${prevDate}
       GROUP BY b1.obj_cd
     `;
@@ -1045,14 +1046,14 @@ export async function fetchProductDailyPnl(): Promise<{
 }
 
 /**
- * 유형(type1)별 Daily PnL 요약
+ * 통화 × 유형(type1)별 Daily PnL 요약
  */
 export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
   noStore();
 
   try {
     const datesResult = await sql`
-      SELECT DISTINCT std_dt FROM breakdownprc WHERE tp = 'MTM'
+      SELECT DISTINCT std_dt FROM breakdownprc
       ORDER BY std_dt DESC LIMIT 2
     `;
     if (datesResult.rows.length < 2) return [];
@@ -1061,29 +1062,32 @@ export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
 
     const result = await sql`
       SELECT
+        s.curr,
         COALESCE(NULLIF(s.type1, ''), '기타') AS type1,
         COUNT(DISTINCT b1.obj_cd) AS count,
         SUM(b1.avg_prc - b2.avg_prc) AS total_daily_pnl,
         COALESCE(SUM(e.coupon_amt), 0) AS total_coupon
       FROM breakdownprc b1
       JOIN breakdownprc b2
-        ON b1.obj_cd = b2.obj_cd AND b1.sp_num = b2.sp_num AND b2.tp = 'MTM'
+        ON b1.obj_cd = b2.obj_cd
+        AND b1.sp_num = b2.sp_num
+        AND b1.tp = b2.tp
       JOIN strucprdp s ON s.obj_cd = b1.obj_cd
       LEFT JOIN (
         SELECT obj_cd, SUM(amt) AS coupon_amt
         FROM excpnp WHERE pay_dt = ${latestDate}
         GROUP BY obj_cd
       ) e ON e.obj_cd = b1.obj_cd
-      WHERE b1.tp = 'MTM'
-        AND b1.std_dt = ${latestDate}
+      WHERE b1.std_dt = ${latestDate}
         AND b2.std_dt = ${prevDate}
         AND s.fnd_cd = '10206020'
         AND s.tp != '자체발행'
-      GROUP BY COALESCE(NULLIF(s.type1, ''), '기타')
-      ORDER BY ABS(SUM(b1.avg_prc - b2.avg_prc)) DESC
+      GROUP BY s.curr, COALESCE(NULLIF(s.type1, ''), '기타')
+      ORDER BY s.curr, ABS(SUM(b1.avg_prc - b2.avg_prc)) DESC
     `;
 
     return result.rows.map((r) => ({
+      curr: String(r.curr),
       type1: String(r.type1),
       count: Number(r.count),
       total_daily_pnl: Number(r.total_daily_pnl),
