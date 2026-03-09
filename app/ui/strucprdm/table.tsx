@@ -96,8 +96,18 @@ function buildStructType(p: Strucprdp): string {
     .join(' / ');
 }
 
-// PnL 금액 포맷
-function fmtPnl(v: number): string {
+// PnL 금액 포맷 (통화별)
+function fmtPnl(v: number, curr?: string): string {
+  if (curr === 'USD') {
+    // USD: $M / $K 단위
+    const m = v / 1000000;
+    if (Math.abs(m) >= 0.1) {
+      return `${m >= 0 ? '+' : ''}$${Math.abs(m).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+    }
+    const k = v / 1000;
+    return `${k >= 0 ? '+' : ''}$${Math.abs(k).toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
+  }
+  // KRW: 억/만 단위
   const b = v / 100000000;
   if (Math.abs(b) >= 1) {
     return `${b >= 0 ? '+' : ''}${b.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
@@ -202,7 +212,7 @@ export default function StrucprdpTable({
               <div>
                 <p className="text-gray-400 dark:text-gray-500 text-xs">Daily PnL</p>
                 <p className={`font-mono text-xs font-semibold ${pnlMap[p.obj_cd] ? pnlColor(pnlMap[p.obj_cd].total_pnl) : 'text-gray-400'}`}>
-                  {pnlMap[p.obj_cd] ? fmtPnl(pnlMap[p.obj_cd].total_pnl) : '-'}
+                  {pnlMap[p.obj_cd] ? fmtPnl(pnlMap[p.obj_cd].total_pnl, pnlMap[p.obj_cd].curr) : '-'}
                 </p>
               </div>
             </div>
@@ -356,9 +366,9 @@ export default function StrucprdpTable({
                           onPnlClick?.(p.obj_cd);
                         }}
                         className={`font-mono text-xs font-semibold ${pnlColor(pnl.total_pnl)} hover:underline cursor-pointer`}
-                        title={`MTM: ${fmtPnl(pnl.daily_pnl)}${pnl.coupon_amt ? ` / 쿠폰: ${fmtPnl(pnl.coupon_amt)}` : ''}`}
+                        title={`MTM: ${fmtPnl(pnl.daily_pnl, pnl.curr)}${pnl.coupon_amt ? ` / 쿠폰: ${fmtPnl(pnl.coupon_amt, pnl.curr)}` : ''}`}
                       >
-                        {fmtPnl(pnl.total_pnl)}
+                        {fmtPnl(pnl.total_pnl, pnl.curr)}
                       </button>
                     );
                   })()}

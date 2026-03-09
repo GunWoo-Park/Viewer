@@ -213,10 +213,11 @@ export type MTMGroupData = {
 // 종목별 Daily PnL (테이블 표시용)
 export type ProductDailyPnl = {
   obj_cd: string;
+  curr: string;           // 통화 (KRW/USD)
   today_mtm: number;
   prev_mtm: number;
-  daily_pnl: number;     // MTM 변동분
-  coupon_amt: number;     // 실쿠폰 유출입 합계
+  daily_pnl: number;     // MTM 변동분 (USD는 달러 기준)
+  coupon_amt: number;     // 실쿠폰 유출입 합계 (USD는 달러 기준)
   total_pnl: number;      // daily_pnl + coupon_amt
 };
 

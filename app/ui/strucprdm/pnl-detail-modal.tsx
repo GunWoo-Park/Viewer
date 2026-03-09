@@ -10,13 +10,43 @@ function formatDate(dt: string): string {
   return `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)}`;
 }
 
-function fmtAmt(v: number): string {
+// KRW 금액 포맷
+function fmtKrw(v: number): string {
   const b = v / 100000000;
   if (Math.abs(b) >= 1) {
     return `${b >= 0 ? '+' : ''}${b.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
   }
   const m = v / 10000;
   return `${m >= 0 ? '+' : ''}${m.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+}
+
+// USD 금액 포맷
+function fmtUsd(v: number): string {
+  const m = v / 1000000;
+  if (Math.abs(m) >= 0.1) {
+    return `${v >= 0 ? '+' : '-'}$${Math.abs(m).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+  }
+  const k = v / 1000;
+  if (Math.abs(k) >= 1) {
+    return `${v >= 0 ? '+' : '-'}$${Math.abs(k).toLocaleString('en-US', { maximumFractionDigits: 1 })}K`;
+  }
+  return `${v >= 0 ? '+' : '-'}$${Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+// 통화별 포맷 분기
+function fmtAmt(v: number, curr: string): string {
+  return curr === 'USD' ? fmtUsd(v) : fmtKrw(v);
+}
+
+// 가격 값 표시 (차트 Y축, 테이블 셀)
+function fmtPrc(v: number, curr: string): string {
+  if (curr === 'USD') {
+    const m = v / 1000000;
+    if (Math.abs(m) >= 0.1) return `$${m.toFixed(2)}M`;
+    const k = v / 1000;
+    return `$${k.toFixed(1)}K`;
+  }
+  return `${(v / 100000000).toFixed(1)}억`;
 }
 
 function amtColor(v: number): string {
@@ -28,8 +58,10 @@ function amtColor(v: number): string {
 // 간단한 SVG 라인 차트
 function MiniPriceChart({
   data,
+  curr,
 }: {
   data: { std_dt: string; kis_prc: number; kap_prc: number; avg_prc: number }[];
+  curr: string;
 }) {
   if (data.length < 2) return <p className="text-xs text-gray-400">데이터 부족</p>;
 
@@ -63,7 +95,7 @@ function MiniPriceChart({
             stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeDasharray="4" />
           <text x={PAD.left - 8} y={yScale(v) + 4} textAnchor="end"
             className="fill-gray-400 dark:fill-gray-500" fontSize="9">
-            {(v / 100000000).toFixed(1)}억
+            {fmtPrc(v, curr)}
           </text>
         </g>
       ))}
@@ -103,7 +135,7 @@ export default function PnlDetailModal({
   objCd: string;
   onClose: () => void;
 }) {
-  const [data, setData] = useState<PnlDetailData | null>(null);
+  const [data, setData] = useState<(PnlDetailData & { usdMarRate?: number }) | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,7 +169,9 @@ export default function PnlDetailModal({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  // Daily PnL 계산
+  const curr = data?.curr || 'KRW';
+
+  // Daily PnL 계산 (이미 달러 기준으로 변환된 값)
   const dailyMtmPnl =
     data && data.mtm_series.length >= 2
       ? data.mtm_series[data.mtm_series.length - 1].avg_prc -
@@ -174,7 +208,8 @@ export default function PnlDetailModal({
             </h2>
             {data && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                {data.cntr_nm} · {data.curr}
+                {data.cntr_nm} · {curr}
+                {curr === 'USD' && data.usdMarRate ? ` (MAR ${data.usdMarRate.toFixed(1)})` : ''}
               </p>
             )}
           </div>
@@ -206,19 +241,19 @@ export default function PnlDetailModal({
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3">
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">MTM 변동</p>
                   <p className={`text-lg font-bold font-mono ${amtColor(dailyMtmPnl)}`}>
-                    {fmtAmt(dailyMtmPnl)}
+                    {fmtAmt(dailyMtmPnl, curr)}
                   </p>
                 </div>
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3">
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">쿠폰 유출입</p>
                   <p className={`text-lg font-bold font-mono ${amtColor(latestCoupon)}`}>
-                    {latestCoupon !== 0 ? fmtAmt(latestCoupon) : '-'}
+                    {latestCoupon !== 0 ? fmtAmt(latestCoupon, curr) : '-'}
                   </p>
                 </div>
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3">
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Total PnL</p>
                   <p className={`text-lg font-bold font-mono ${amtColor(dailyMtmPnl + latestCoupon)}`}>
-                    {fmtAmt(dailyMtmPnl + latestCoupon)}
+                    {fmtAmt(dailyMtmPnl + latestCoupon, curr)}
                   </p>
                 </div>
               </div>
@@ -226,10 +261,10 @@ export default function PnlDetailModal({
               {/* KIS/KAP/AVG 차트 */}
               <div className="mb-6">
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                  MTM 가격 추이 (KIS / KAP / AVG)
+                  MTM 가격 추이 (KIS / KAP / AVG){curr === 'USD' ? ' — USD 기준' : ''}
                 </h3>
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-900">
-                  <MiniPriceChart data={data.mtm_series} />
+                  <MiniPriceChart data={data.mtm_series} curr={curr} />
                 </div>
               </div>
 
@@ -257,16 +292,16 @@ export default function PnlDetailModal({
                           <tr key={d.std_dt} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                             <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{formatDate(d.std_dt)}</td>
                             <td className="px-3 py-1.5 text-right font-mono text-blue-600 dark:text-blue-400">
-                              {(d.kis_prc / 100000000).toFixed(1)}억
+                              {fmtPrc(d.kis_prc, curr)}
                             </td>
                             <td className="px-3 py-1.5 text-right font-mono text-orange-600 dark:text-orange-400">
-                              {(d.kap_prc / 100000000).toFixed(1)}억
+                              {fmtPrc(d.kap_prc, curr)}
                             </td>
                             <td className="px-3 py-1.5 text-right font-mono font-semibold text-purple-600 dark:text-purple-400">
-                              {(d.avg_prc / 100000000).toFixed(1)}억
+                              {fmtPrc(d.avg_prc, curr)}
                             </td>
                             <td className={`px-3 py-1.5 text-right font-mono ${amtColor(daily)}`}>
-                              {i < arr.length - 1 ? fmtAmt(daily) : '-'}
+                              {i < arr.length - 1 ? fmtAmt(daily, curr) : '-'}
                             </td>
                           </tr>
                         );
@@ -303,9 +338,9 @@ export default function PnlDetailModal({
                                 {c.tp}
                               </span>
                             </td>
-                            <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{c.curr}</td>
+                            <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{curr}</td>
                             <td className={`px-3 py-1.5 text-right font-mono ${amtColor(c.amt)}`}>
-                              {fmtAmt(c.amt)}
+                              {fmtAmt(c.amt, curr)}
                             </td>
                           </tr>
                         ))}

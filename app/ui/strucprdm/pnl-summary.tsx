@@ -1,13 +1,29 @@
 // 통화 × 유형별 Daily PnL 요약 — 컴팩트 테이블 형태
 import { PnlSummaryByType } from '@/app/lib/definitions';
 
-function fmtAmt(v: number): string {
+// KRW 금액 포맷 (억/만)
+function fmtKrw(v: number): string {
   const b = v / 100000000;
   if (Math.abs(b) >= 0.1) {
     return `${b >= 0 ? '+' : ''}${b.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
   }
   const m = v / 10000;
   return `${m >= 0 ? '+' : ''}${m.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+}
+
+// USD 금액 포맷 ($M / $K)
+function fmtUsd(v: number): string {
+  const m = v / 1000000;
+  if (Math.abs(m) >= 0.1) {
+    return `${v >= 0 ? '+' : '-'}$${Math.abs(m).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+  }
+  const k = v / 1000;
+  return `${v >= 0 ? '+' : '-'}$${Math.abs(k).toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
+}
+
+// 통화별 포맷 분기
+function fmtAmt(v: number, curr: string): string {
+  return curr === 'USD' ? fmtUsd(v) : fmtKrw(v);
 }
 
 function amtColor(v: number): string {
@@ -51,24 +67,37 @@ export default function PnlSummaryCards({
     byCurr['기타'] = otherCurr;
   }
 
-  // 전체 합계
-  const grandPnl = summary.reduce((s, r) => s + r.total_pnl, 0);
-  const grandMtm = summary.reduce((s, r) => s + r.total_daily_pnl, 0);
-  const grandCoupon = summary.reduce((s, r) => s + r.total_coupon, 0);
+  // 통화별 합계
+  const krwItems = byCurr['KRW'] || [];
+  const usdItems = byCurr['USD'] || [];
+  const krwTotal = krwItems.reduce((s, r) => s + r.total_pnl, 0);
+  const usdTotal = usdItems.reduce((s, r) => s + r.total_pnl, 0);
   const totalCount = summary.reduce((s, r) => s + r.count, 0);
 
   return (
     <div className="mb-6">
-      <div className="flex items-baseline gap-3 mb-2">
+      <div className="flex flex-wrap items-baseline gap-3 mb-2">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Daily PnL</h2>
         {dateStr && (
           <span className="text-xs text-gray-400 dark:text-gray-500">{dateStr} 기준</span>
         )}
-        <span className={`text-lg font-bold font-mono ${amtColor(grandPnl)}`}>
-          {fmtAmt(grandPnl)}
-        </span>
+        {/* KRW 합계 */}
+        {krwItems.length > 0 && (
+          <span className={`text-lg font-bold font-mono ${amtColor(krwTotal)}`}>
+            {fmtKrw(krwTotal)}
+          </span>
+        )}
+        {/* USD 합계 */}
+        {usdItems.length > 0 && (
+          <>
+            {krwItems.length > 0 && <span className="text-gray-300 dark:text-gray-600">/</span>}
+            <span className={`text-lg font-bold font-mono ${amtColor(usdTotal)}`}>
+              {fmtUsd(usdTotal)}
+            </span>
+          </>
+        )}
         <span className="text-xs text-gray-400 dark:text-gray-500">
-          ({totalCount}종목 · MTM {fmtAmt(grandMtm)}{grandCoupon !== 0 ? ` + 쿠폰 ${fmtAmt(grandCoupon)}` : ''})
+          ({totalCount}종목)
         </span>
       </div>
 
@@ -99,7 +128,7 @@ export default function PnlSummaryCards({
                   <span className="text-[10px] text-gray-400 dark:text-gray-500">{currCount}종목</span>
                 </div>
                 <span className={`text-sm font-bold font-mono ${amtColor(currTotal)}`}>
-                  {fmtAmt(currTotal)}
+                  {fmtAmt(currTotal, curr)}
                 </span>
               </div>
 
@@ -118,12 +147,12 @@ export default function PnlSummaryCards({
                         <span className="ml-1 text-[10px] text-gray-400">{s.count}</span>
                       </td>
                       <td className={`text-right font-mono font-semibold pr-1 ${amtColor(s.total_daily_pnl)}`}>
-                        {fmtAmt(s.total_daily_pnl)}
+                        {fmtAmt(s.total_daily_pnl, curr)}
                       </td>
                       <td className="text-right pr-3 w-20">
                         {s.total_coupon !== 0 ? (
                           <span className={`font-mono text-[10px] ${amtColor(s.total_coupon)}`}>
-                            cpn {fmtAmt(s.total_coupon)}
+                            cpn {fmtAmt(s.total_coupon, curr)}
                           </span>
                         ) : (
                           <span className="text-gray-300 dark:text-gray-600">-</span>
@@ -135,12 +164,12 @@ export default function PnlSummaryCards({
                   <tr className="bg-gray-50/50 dark:bg-gray-800/50">
                     <td className="pl-3 py-1 text-gray-500 dark:text-gray-400 font-medium">소계</td>
                     <td className={`text-right font-mono font-bold pr-1 ${amtColor(currMtm)}`}>
-                      {fmtAmt(currMtm)}
+                      {fmtAmt(currMtm, curr)}
                     </td>
                     <td className="text-right pr-3">
                       {currCoupon !== 0 ? (
                         <span className={`font-mono text-[10px] font-semibold ${amtColor(currCoupon)}`}>
-                          cpn {fmtAmt(currCoupon)}
+                          cpn {fmtAmt(currCoupon, curr)}
                         </span>
                       ) : (
                         <span className="text-gray-300 dark:text-gray-600">-</span>
