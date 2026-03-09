@@ -96,24 +96,33 @@ function buildStructType(p: Strucprdp): string {
     .join(' / ');
 }
 
-// PnL 금액 포맷 (통화별)
-function fmtPnl(v: number, curr?: string): string {
-  if (curr === 'USD') {
-    // USD: $M / $K 단위
-    const m = v / 1000000;
-    if (Math.abs(m) >= 0.1) {
-      return `${m >= 0 ? '+' : ''}$${Math.abs(m).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
-    }
-    const k = v / 1000;
-    return `${k >= 0 ? '+' : ''}$${Math.abs(k).toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
-  }
-  // KRW: 억/만 단위
+// KRW 금액 포맷 (억/만)
+function fmtKrw(v: number): string {
   const b = v / 100000000;
   if (Math.abs(b) >= 1) {
     return `${b >= 0 ? '+' : ''}${b.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
   }
   const m = v / 10000;
   return `${m >= 0 ? '+' : ''}${m.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+}
+
+// USD 금액 포맷 ($M / $K)
+function fmtUsd(v: number): string {
+  const m = v / 1000000;
+  if (Math.abs(m) >= 0.1) {
+    return `${v >= 0 ? '+' : '-'}$${Math.abs(m).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+  }
+  const k = v / 1000;
+  return `${v >= 0 ? '+' : '-'}$${Math.abs(k).toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
+}
+
+// PnL 포맷: 원화가 메인, USD는 원화(달러) 형식
+function fmtPnl(krwVal: number, usdVal?: number): string {
+  const main = fmtKrw(krwVal);
+  if (usdVal !== undefined) {
+    return `${main} (${fmtUsd(usdVal)})`;
+  }
+  return main;
 }
 
 function pnlColor(v: number): string {
@@ -211,8 +220,8 @@ export default function StrucprdpTable({
               </div>
               <div>
                 <p className="text-gray-400 dark:text-gray-500 text-xs">Daily PnL</p>
-                <p className={`font-mono text-xs font-semibold ${pnlMap[p.obj_cd] ? pnlColor(pnlMap[p.obj_cd].total_pnl) : 'text-gray-400'}`}>
-                  {pnlMap[p.obj_cd] ? fmtPnl(pnlMap[p.obj_cd].total_pnl, pnlMap[p.obj_cd].curr) : '-'}
+                <p className={`font-mono text-xs font-semibold ${pnlMap[p.obj_cd] ? pnlColor(pnlMap[p.obj_cd].total_pnl_krw) : 'text-gray-400'}`}>
+                  {pnlMap[p.obj_cd] ? fmtPnl(pnlMap[p.obj_cd].total_pnl_krw, pnlMap[p.obj_cd].curr === 'USD' ? pnlMap[p.obj_cd].total_pnl : undefined) : '-'}
                 </p>
               </div>
             </div>
@@ -365,10 +374,10 @@ export default function StrucprdpTable({
                           e.stopPropagation();
                           onPnlClick?.(p.obj_cd);
                         }}
-                        className={`font-mono text-xs font-semibold ${pnlColor(pnl.total_pnl)} hover:underline cursor-pointer`}
-                        title={`MTM: ${fmtPnl(pnl.daily_pnl, pnl.curr)}${pnl.coupon_amt ? ` / 쿠폰: ${fmtPnl(pnl.coupon_amt, pnl.curr)}` : ''}`}
+                        className={`font-mono text-xs font-semibold ${pnlColor(pnl.total_pnl_krw)} hover:underline cursor-pointer`}
+                        title={`MTM: ${fmtPnl(pnl.daily_pnl_krw, pnl.curr === 'USD' ? pnl.daily_pnl : undefined)}${pnl.coupon_amt ? ` / 쿠폰: ${fmtPnl(pnl.coupon_amt_krw, pnl.curr === 'USD' ? pnl.coupon_amt : undefined)}` : ''}`}
                       >
-                        {fmtPnl(pnl.total_pnl, pnl.curr)}
+                        {fmtPnl(pnl.total_pnl_krw, pnl.curr === 'USD' ? pnl.total_pnl : undefined)}
                       </button>
                     );
                   })()}

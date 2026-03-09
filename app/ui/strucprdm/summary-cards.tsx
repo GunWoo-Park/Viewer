@@ -46,6 +46,25 @@ function fmtMtm(v: number): string {
   return `${b >= 0 ? '+' : ''}${b.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
 }
 
+// USD 달러 포맷 ($M / $K)
+function fmtUsdShort(v: number): string {
+  const m = v / 1000000;
+  if (Math.abs(m) >= 0.1) {
+    return `${v >= 0 ? '+' : '-'}$${Math.abs(m).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+  }
+  const k = v / 1000;
+  return `${v >= 0 ? '+' : '-'}$${Math.abs(k).toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
+}
+
+// 원화 메인 + USD 괄호
+function fmtMtmDual(krwVal: number, usdVal?: number): string {
+  const main = fmtMtm(krwVal);
+  if (usdVal !== undefined) {
+    return `${main} (${fmtUsdShort(usdVal)})`;
+  }
+  return main;
+}
+
 function SummaryCard({
   title,
   value,
@@ -133,20 +152,18 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
   const totalAssetCount = (krw?.assetCount || 0) + (usd?.assetCount || 0);
   const totalNotnKrw =
     (krw?.assetNotional || 0) + (usd?.assetNotional || 0) * data.usdKrwRate;
-  const totalMtm = (krw?.totalMtm || 0) + (usd?.totalMtm || 0);
-  const totalPrevMtm = (krw?.prevMtm || 0) + (usd?.prevMtm || 0);
-  const totalMtmChange = totalMtm - totalPrevMtm;
-  const totalCarryMtmChange =
-    (krw?.carryMtmChange || 0) + (usd?.carryMtmChange || 0);
+
+  // MTM/변동은 KRW 환산값으로 합산
+  const totalMtmAllKrw = (krw?.totalMtm || 0) + (usd?.totalMtmKrw || 0);
+  const totalMtmChangeKrw = (krw?.mtmChange || 0) + (usd?.mtmChangeKrw || 0);
+  const totalCarryMtmChangeKrw = (krw?.carryMtmChange || 0) + (usd?.carryMtmChangeKrw || 0);
+  const totalCouponKrw = (krw?.couponAmt || 0) + (usd?.couponAmtKrw || 0);
 
   // 전체 가중평균 캐리
   const krwWc = krw && krw.avgCarry != null ? krw.assetNotional * krw.avgCarry : 0;
   const usdWcKrw =
     usd && usd.avgCarry != null ? usd.assetNotional * data.usdKrwRate * usd.avgCarry : 0;
   const totalAvgCarry = totalNotnKrw > 0 ? (krwWc + usdWcKrw) / totalNotnKrw : null;
-
-  // 전체 실현이자
-  const totalCoupon = (krw?.couponAmt || 0) + (usd?.couponAmt || 0);
 
   type RowData = {
     label: string;
@@ -155,10 +172,14 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
     count: number;
     notional: string;
     notionalSub?: string;
-    mtm: number;
-    mtmChange: number;
-    carryMtmChange: number;
-    couponAmt: number;
+    mtmKrw: number;          // 원화 기준 MTM
+    mtmChangeKrw: number;    // 원화 기준 일간 변동
+    carryMtmChangeKrw: number;
+    couponAmtKrw: number;
+    // USD 달러값 (괄호 표시용)
+    mtmChangeUsd?: number;
+    carryMtmChangeUsd?: number;
+    couponAmtUsd?: number;
     carry: number | null;
     isBold?: boolean;
   };
@@ -172,10 +193,10 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
       badgeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
       count: krw.assetCount,
       notional: formatKRW(krw.assetNotional),
-      mtm: krw.totalMtm,
-      mtmChange: krw.mtmChange,
-      carryMtmChange: krw.carryMtmChange,
-      couponAmt: krw.couponAmt,
+      mtmKrw: krw.totalMtm,
+      mtmChangeKrw: krw.mtmChange,
+      carryMtmChangeKrw: krw.carryMtmChange,
+      couponAmtKrw: krw.couponAmt,
       carry: krw.avgCarry,
     });
   }
@@ -188,10 +209,13 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
       count: usd.assetCount,
       notional: formatUSD(usd.assetNotional),
       notionalSub: formatKRW(usd.assetNotional * data.usdKrwRate),
-      mtm: usd.totalMtm,
-      mtmChange: usd.mtmChange,
-      carryMtmChange: usd.carryMtmChange,
-      couponAmt: usd.couponAmt,
+      mtmKrw: usd.totalMtmKrw,
+      mtmChangeKrw: usd.mtmChangeKrw,
+      carryMtmChangeKrw: usd.carryMtmChangeKrw,
+      couponAmtKrw: usd.couponAmtKrw,
+      mtmChangeUsd: usd.mtmChange,
+      carryMtmChangeUsd: usd.carryMtmChange,
+      couponAmtUsd: usd.couponAmt,
       carry: usd.avgCarry,
     });
   }
@@ -200,10 +224,10 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
     label: '합계',
     count: totalAssetCount,
     notional: formatKRW(totalNotnKrw),
-    mtm: totalMtm,
-    mtmChange: totalMtmChange,
-    carryMtmChange: totalCarryMtmChange,
-    couponAmt: totalCoupon,
+    mtmKrw: totalMtmAllKrw,
+    mtmChangeKrw: totalMtmChangeKrw,
+    carryMtmChangeKrw: totalCarryMtmChangeKrw,
+    couponAmtKrw: totalCouponKrw,
     carry: totalAvgCarry,
     isBold: true,
   });
@@ -273,17 +297,36 @@ function TpAggregationCard({ data }: { data: TpAggregation }) {
                       </span>
                     )}
                   </td>
-                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.mtm)}`}>
-                    {fmtMtm(row.mtm)}
+                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.mtmKrw)}`}>
+                    {row.isBold ? '-' : fmtMtm(row.mtmKrw)}
                   </td>
-                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.mtmChange)}`}>
-                    {fmtMtm(row.mtmChange)}
+                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.mtmChangeKrw)}`}>
+                    <span>{fmtMtm(row.mtmChangeKrw)}</span>
+                    {row.mtmChangeUsd !== undefined && (
+                      <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">
+                        ({fmtUsdShort(row.mtmChangeUsd)})
+                      </span>
+                    )}
                   </td>
-                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.carryMtmChange)}`}>
-                    {fmtMtm(row.carryMtmChange)}
+                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.carryMtmChangeKrw)}`}>
+                    <span>{fmtMtm(row.carryMtmChangeKrw)}</span>
+                    {row.carryMtmChangeUsd !== undefined && (
+                      <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">
+                        ({fmtUsdShort(row.carryMtmChangeUsd)})
+                      </span>
+                    )}
                   </td>
-                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.couponAmt)}`}>
-                    {row.couponAmt !== 0 ? fmtMtm(row.couponAmt) : <span className="text-gray-300 dark:text-gray-600">-</span>}
+                  <td className={`py-2 px-2 text-right font-mono ${mtmColorFn(row.couponAmtKrw)}`}>
+                    {row.couponAmtKrw !== 0 ? (
+                      <>
+                        <span>{fmtMtm(row.couponAmtKrw)}</span>
+                        {row.couponAmtUsd !== undefined && (
+                          <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">
+                            ({fmtUsdShort(row.couponAmtUsd)})
+                          </span>
+                        )}
+                      </>
+                    ) : <span className="text-gray-300 dark:text-gray-600">-</span>}
                   </td>
                   <td className="py-2 px-2 text-right">
                     <span className={`font-mono font-bold ${carryColor(row.carry)}`}>

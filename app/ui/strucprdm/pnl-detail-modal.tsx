@@ -33,9 +33,14 @@ function fmtUsd(v: number): string {
   return `${v >= 0 ? '+' : '-'}$${Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
-// 통화별 포맷 분기
-function fmtAmt(v: number, curr: string): string {
-  return curr === 'USD' ? fmtUsd(v) : fmtKrw(v);
+// 원화 메인 + USD 괄호 포맷
+// marRate가 있으면 달러값(v) × marRate로 원화 환산 + 달러 괄호
+function fmtAmt(v: number, curr: string, marRate?: number): string {
+  if (curr === 'USD' && marRate && marRate > 0) {
+    const krwVal = v * marRate;
+    return `${fmtKrw(krwVal)} (${fmtUsd(v)})`;
+  }
+  return fmtKrw(v);
 }
 
 // 가격 값 표시 (차트 Y축, 테이블 셀)
@@ -170,6 +175,7 @@ export default function PnlDetailModal({
   }, [handleKeyDown]);
 
   const curr = data?.curr || 'KRW';
+  const marRate = data?.usdMarRate || 0;
 
   // Daily PnL 계산 (이미 달러 기준으로 변환된 값)
   const dailyMtmPnl =
@@ -187,8 +193,8 @@ export default function PnlDetailModal({
   const latestCoupon =
     data && latestDate
       ? data.coupons
-          .filter((c) => c.pay_dt === latestDate)
-          .reduce((sum, c) => sum + c.amt, 0)
+          .filter((c: { pay_dt: string; amt: number }) => c.pay_dt === latestDate)
+          .reduce((sum: number, c: { amt: number }) => sum + c.amt, 0)
       : 0;
 
   return (
@@ -241,19 +247,19 @@ export default function PnlDetailModal({
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3">
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">MTM 변동</p>
                   <p className={`text-lg font-bold font-mono ${amtColor(dailyMtmPnl)}`}>
-                    {fmtAmt(dailyMtmPnl, curr)}
+                    {fmtAmt(dailyMtmPnl, curr, marRate)}
                   </p>
                 </div>
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3">
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">쿠폰 유출입</p>
                   <p className={`text-lg font-bold font-mono ${amtColor(latestCoupon)}`}>
-                    {latestCoupon !== 0 ? fmtAmt(latestCoupon, curr) : '-'}
+                    {latestCoupon !== 0 ? fmtAmt(latestCoupon, curr, marRate) : '-'}
                   </p>
                 </div>
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3">
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Total PnL</p>
                   <p className={`text-lg font-bold font-mono ${amtColor(dailyMtmPnl + latestCoupon)}`}>
-                    {fmtAmt(dailyMtmPnl + latestCoupon, curr)}
+                    {fmtAmt(dailyMtmPnl + latestCoupon, curr, marRate)}
                   </p>
                 </div>
               </div>
@@ -301,7 +307,7 @@ export default function PnlDetailModal({
                               {fmtPrc(d.avg_prc, curr)}
                             </td>
                             <td className={`px-3 py-1.5 text-right font-mono ${amtColor(daily)}`}>
-                              {i < arr.length - 1 ? fmtAmt(daily, curr) : '-'}
+                              {i < arr.length - 1 ? fmtAmt(daily, curr, marRate) : '-'}
                             </td>
                           </tr>
                         );
@@ -340,7 +346,7 @@ export default function PnlDetailModal({
                             </td>
                             <td className="px-3 py-1.5 text-gray-600 dark:text-gray-400">{curr}</td>
                             <td className={`px-3 py-1.5 text-right font-mono ${amtColor(c.amt)}`}>
-                              {fmtAmt(c.amt, curr)}
+                              {fmtAmt(c.amt, curr, marRate)}
                             </td>
                           </tr>
                         ))}

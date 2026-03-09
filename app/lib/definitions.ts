@@ -221,6 +221,9 @@ export type ProductDailyPnl = {
   daily_pnl: number;     // MTM 변동분 (USD는 달러 기준)
   coupon_amt: number;     // 실쿠폰 유출입 합계 (USD는 달러 기준)
   total_pnl: number;      // daily_pnl + coupon_amt
+  daily_pnl_krw: number;  // 원화 환산 PnL (USD: 달러PnL × latestMar, KRW: 원본값)
+  coupon_amt_krw: number;
+  total_pnl_krw: number;
 };
 
 // PnL 통화×유형별 요약
@@ -228,9 +231,12 @@ export type PnlSummaryByType = {
   curr: string;
   type1: string;
   count: number;
-  total_daily_pnl: number;
+  total_daily_pnl: number;     // USD는 달러 기준
   total_coupon: number;
   total_pnl: number;
+  total_daily_pnl_krw: number; // 원화 환산 (USD: ×latestMar, KRW: 원본)
+  total_coupon_krw: number;
+  total_pnl_krw: number;
 };
 
 // PnL 상세 모달용 (KIS/KAP 가격 + 쿠폰 내역)

@@ -21,9 +21,13 @@ function fmtUsd(v: number): string {
   return `${v >= 0 ? '+' : '-'}$${Math.abs(k).toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
 }
 
-// 통화별 포맷 분기
-function fmtAmt(v: number, curr: string): string {
-  return curr === 'USD' ? fmtUsd(v) : fmtKrw(v);
+// 원화 메인 + USD는 괄호
+function fmtAmt(krwVal: number, curr: string, usdVal?: number): string {
+  const main = fmtKrw(krwVal);
+  if (curr === 'USD' && usdVal !== undefined) {
+    return `${main} (${fmtUsd(usdVal)})`;
+  }
+  return main;
 }
 
 function amtColor(v: number): string {
@@ -67,11 +71,8 @@ export default function PnlSummaryCards({
     byCurr['기타'] = otherCurr;
   }
 
-  // 통화별 합계
-  const krwItems = byCurr['KRW'] || [];
-  const usdItems = byCurr['USD'] || [];
-  const krwTotal = krwItems.reduce((s, r) => s + r.total_pnl, 0);
-  const usdTotal = usdItems.reduce((s, r) => s + r.total_pnl, 0);
+  // 전체 원화 환산 합계
+  const totalPnlKrw = summary.reduce((s, r) => s + r.total_pnl_krw, 0);
   const totalCount = summary.reduce((s, r) => s + r.count, 0);
 
   return (
@@ -81,21 +82,10 @@ export default function PnlSummaryCards({
         {dateStr && (
           <span className="text-xs text-gray-400 dark:text-gray-500">{dateStr} 기준</span>
         )}
-        {/* KRW 합계 */}
-        {krwItems.length > 0 && (
-          <span className={`text-lg font-bold font-mono ${amtColor(krwTotal)}`}>
-            {fmtKrw(krwTotal)}
-          </span>
-        )}
-        {/* USD 합계 */}
-        {usdItems.length > 0 && (
-          <>
-            {krwItems.length > 0 && <span className="text-gray-300 dark:text-gray-600">/</span>}
-            <span className={`text-lg font-bold font-mono ${amtColor(usdTotal)}`}>
-              {fmtUsd(usdTotal)}
-            </span>
-          </>
-        )}
+        {/* 전체 원화 합계 */}
+        <span className={`text-lg font-bold font-mono ${amtColor(totalPnlKrw)}`}>
+          {fmtKrw(totalPnlKrw)}
+        </span>
         <span className="text-xs text-gray-400 dark:text-gray-500">
           ({totalCount}종목)
         </span>
@@ -105,10 +95,15 @@ export default function PnlSummaryCards({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {Object.entries(byCurr).map(([curr, items]) => {
           if (items.length === 0) return null;
-          const currTotal = items.reduce((s, r) => s + r.total_pnl, 0);
-          const currMtm = items.reduce((s, r) => s + r.total_daily_pnl, 0);
-          const currCoupon = items.reduce((s, r) => s + r.total_coupon, 0);
+          const currTotalKrw = items.reduce((s, r) => s + r.total_pnl_krw, 0);
+          const currMtmKrw = items.reduce((s, r) => s + r.total_daily_pnl_krw, 0);
+          const currCouponKrw = items.reduce((s, r) => s + r.total_coupon_krw, 0);
           const currCount = items.reduce((s, r) => s + r.count, 0);
+          // USD 달러 합계 (괄호 표시용)
+          const isUsd = curr === 'USD';
+          const currTotalUsd = isUsd ? items.reduce((s, r) => s + r.total_pnl, 0) : 0;
+          const currMtmUsd = isUsd ? items.reduce((s, r) => s + r.total_daily_pnl, 0) : 0;
+          const currCouponUsd = isUsd ? items.reduce((s, r) => s + r.total_coupon, 0) : 0;
 
           return (
             <div
@@ -127,8 +122,8 @@ export default function PnlSummaryCards({
                   </span>
                   <span className="text-[10px] text-gray-400 dark:text-gray-500">{currCount}종목</span>
                 </div>
-                <span className={`text-sm font-bold font-mono ${amtColor(currTotal)}`}>
-                  {fmtAmt(currTotal, curr)}
+                <span className={`text-sm font-bold font-mono ${amtColor(currTotalKrw)}`}>
+                  {fmtAmt(currTotalKrw, curr, isUsd ? currTotalUsd : undefined)}
                 </span>
               </div>
 
@@ -146,13 +141,13 @@ export default function PnlSummaryCards({
                         </span>
                         <span className="ml-1 text-[10px] text-gray-400">{s.count}</span>
                       </td>
-                      <td className={`text-right font-mono font-semibold pr-1 ${amtColor(s.total_daily_pnl)}`}>
-                        {fmtAmt(s.total_daily_pnl, curr)}
+                      <td className={`text-right font-mono font-semibold pr-1 ${amtColor(s.total_daily_pnl_krw)}`}>
+                        {fmtAmt(s.total_daily_pnl_krw, curr, isUsd ? s.total_daily_pnl : undefined)}
                       </td>
                       <td className="text-right pr-3 w-20">
                         {s.total_coupon !== 0 ? (
-                          <span className={`font-mono text-[10px] ${amtColor(s.total_coupon)}`}>
-                            cpn {fmtAmt(s.total_coupon, curr)}
+                          <span className={`font-mono text-[10px] ${amtColor(s.total_coupon_krw)}`}>
+                            cpn {fmtAmt(s.total_coupon_krw, curr, isUsd ? s.total_coupon : undefined)}
                           </span>
                         ) : (
                           <span className="text-gray-300 dark:text-gray-600">-</span>
@@ -163,13 +158,13 @@ export default function PnlSummaryCards({
                   {/* 통화 소계 */}
                   <tr className="bg-gray-50/50 dark:bg-gray-800/50">
                     <td className="pl-3 py-1 text-gray-500 dark:text-gray-400 font-medium">소계</td>
-                    <td className={`text-right font-mono font-bold pr-1 ${amtColor(currMtm)}`}>
-                      {fmtAmt(currMtm, curr)}
+                    <td className={`text-right font-mono font-bold pr-1 ${amtColor(currMtmKrw)}`}>
+                      {fmtAmt(currMtmKrw, curr, isUsd ? currMtmUsd : undefined)}
                     </td>
                     <td className="text-right pr-3">
-                      {currCoupon !== 0 ? (
-                        <span className={`font-mono text-[10px] font-semibold ${amtColor(currCoupon)}`}>
-                          cpn {fmtAmt(currCoupon, curr)}
+                      {currCouponKrw !== 0 ? (
+                        <span className={`font-mono text-[10px] font-semibold ${amtColor(currCouponKrw)}`}>
+                          cpn {fmtAmt(currCouponKrw, curr, isUsd ? currCouponUsd : undefined)}
                         </span>
                       ) : (
                         <span className="text-gray-300 dark:text-gray-600">-</span>

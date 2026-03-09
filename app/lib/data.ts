@@ -750,12 +750,17 @@ export type TpSetRow = {
   curr: string;
   assetCount: number;      // 자산 건수
   assetNotional: number;   // 자산 노셔널 (KRW→원, USD→달러)
-  totalMtm: number;        // 최근일 MTM 합계 (원화)
-  prevMtm: number;         // 전영업일 MTM 합계 (원화)
-  mtmChange: number;       // 전체 set 가격변동 (최근일 - 전영업일)
-  carryMtmChange: number;  // 캐리 전용 가격변동 (최근일 - 전영업일)
-  couponAmt: number;       // 실현이자 (excpnp 최근일)
+  totalMtm: number;        // 최근일 MTM 합계 (USD는 달러 기준)
+  prevMtm: number;         // 전영업일 MTM 합계 (USD는 달러 기준)
+  mtmChange: number;       // 전체 set 가격변동 (USD는 달러 기준)
+  carryMtmChange: number;  // 캐리 전용 가격변동 (USD는 달러 기준)
+  couponAmt: number;       // 실현이자 (USD는 달러 기준)
   avgCarry: number | null; // 자산 기준 가중평균 캐리
+  totalMtmKrw: number;     // 원화 환산 MTM 합계
+  prevMtmKrw: number;      // 원화 환산 전일 MTM
+  mtmChangeKrw: number;    // 원화 환산 일간 변동
+  carryMtmChangeKrw: number;
+  couponAmtKrw: number;
 };
 
 export type TpAggregation = {
@@ -879,16 +884,27 @@ export async function fetchTpAggregation(): Promise<TpAggregation> {
         couponAmt = couponAmt / latestMar;
       }
 
+      const mtmChange = mtm - prev;
+      const carryMtmChange = carryLatest - carryPrev;
+
+      // KRW 환산: USD는 달러 PnL × latestMar
+      const krwMul = (curr === 'USD' && latestMar > 0) ? latestMar : 1;
+
       return {
         curr,
         assetCount: Number(row.asset_cnt),
         assetNotional: Number(row.asset_notn),
         totalMtm: mtm,
         prevMtm: prev,
-        mtmChange: mtm - prev,
-        carryMtmChange: carryLatest - carryPrev,
+        mtmChange,
+        carryMtmChange,
         couponAmt,
         avgCarry: row.avg_carry != null ? Number(row.avg_carry) : null,
+        totalMtmKrw: mtm * krwMul,
+        prevMtmKrw: prev * krwMul,
+        mtmChangeKrw: mtmChange * krwMul,
+        carryMtmChangeKrw: carryMtmChange * krwMul,
+        couponAmtKrw: couponAmt * krwMul,
       };
     });
 
@@ -1178,6 +1194,12 @@ export async function fetchProductDailyPnl(): Promise<{
       }
 
       const dailyPnl = todayMtm - prevMtmVal;
+      const totalPnl = dailyPnl + couponAmt;
+
+      // KRW 환산: USD 종목은 달러 PnL × latestMar, KRW는 원본값 그대로
+      const krwMultiplier = (curr === 'USD' && latestMar > 0) ? latestMar : 1;
+      const dailyPnlKrw = dailyPnl * krwMultiplier;
+      const couponAmtKrw = couponAmt * krwMultiplier;
 
       pnlMap[objCd] = {
         obj_cd: objCd,
@@ -1186,7 +1208,10 @@ export async function fetchProductDailyPnl(): Promise<{
         prev_mtm: prevMtmVal,
         daily_pnl: dailyPnl,
         coupon_amt: couponAmt,
-        total_pnl: dailyPnl + couponAmt,
+        total_pnl: totalPnl,
+        daily_pnl_krw: dailyPnlKrw,
+        coupon_amt_krw: couponAmtKrw,
+        total_pnl_krw: dailyPnlKrw + couponAmtKrw,
       };
     }
 
@@ -1260,6 +1285,12 @@ export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
       }
 
       const totalDailyPnl = todayMtm - prevMtm;
+      const totalPnl = totalDailyPnl + totalCoupon;
+
+      // KRW 환산: USD 종목은 달러 PnL × latestMar
+      const krwMul = (curr === 'USD' && latestMar > 0) ? latestMar : 1;
+      const totalDailyPnlKrw = totalDailyPnl * krwMul;
+      const totalCouponKrw = totalCoupon * krwMul;
 
       return {
         curr,
@@ -1267,7 +1298,10 @@ export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
         count: Number(r.count),
         total_daily_pnl: totalDailyPnl,
         total_coupon: totalCoupon,
-        total_pnl: totalDailyPnl + totalCoupon,
+        total_pnl: totalPnl,
+        total_daily_pnl_krw: totalDailyPnlKrw,
+        total_coupon_krw: totalCouponKrw,
+        total_pnl_krw: totalDailyPnlKrw + totalCouponKrw,
       };
     });
   } catch (error) {
