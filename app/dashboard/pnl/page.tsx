@@ -3,23 +3,19 @@ import { lusitana } from '@/app/ui/fonts';
 import { Suspense } from 'react';
 import {
   PnlTrendChart,
-  FundPnlTable,
+  TypePnlTable,
   RiskAttributionTable,
 } from '@/app/ui/pnl/pnl-chart';
+import {
+  fetchPnlSummaryCards,
+  fetchPnlTrend,
+  fetchPnlSummaryByTypeAllFunds,
+} from '@/app/lib/data';
 import {
   ArrowTrendingUpIcon,
   CalendarDaysIcon,
   ChartBarIcon,
 } from '@heroicons/react/24/outline';
-
-// Mock 요약 데이터
-const summaryData = {
-  dailyPnl: 1.20,
-  mtdPnl: 12.50,
-  ytdPnl: 27.11,
-  carryPnl: 3.21,
-  baseDate: '2026-02-26',
-};
 
 // 요약 카드 컴포넌트
 function PnlSummaryCard({
@@ -63,9 +59,20 @@ function PnlSummaryCard({
   );
 }
 
-export default function PnLPage() {
+// 통합 서버 래퍼: 모든 데이터를 한 번에 가져와서 렌더링
+async function PnlDashboardContent() {
+  const [
+    { trend, latestDate },
+    summaryCards,
+    typeSummary,
+  ] = await Promise.all([
+    fetchPnlTrend(),
+    fetchPnlSummaryCards(),
+    fetchPnlSummaryByTypeAllFunds(),
+  ]);
+
   return (
-    <main>
+    <>
       {/* 헤더 */}
       <div className="mb-6 flex items-center justify-between">
         <h1 className={`${lusitana.className} text-xl md:text-2xl dark:text-gray-100`}>
@@ -74,7 +81,7 @@ export default function PnLPage() {
         <div className="flex items-center gap-2 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1.5">
           <CalendarDaysIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           <span className="text-sm font-mono text-gray-600 dark:text-gray-300">
-            {summaryData.baseDate}
+            {summaryCards.baseDate}
           </span>
         </div>
       </div>
@@ -83,29 +90,29 @@ export default function PnLPage() {
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <PnlSummaryCard
           title="Daily PnL"
-          value={summaryData.dailyPnl}
+          value={summaryCards.dailyPnl}
           subtitle="전일 대비"
           icon={ArrowTrendingUpIcon}
           color="bg-blue-500"
         />
         <PnlSummaryCard
           title="MTD PnL"
-          value={summaryData.mtdPnl}
-          subtitle="2월 누적"
+          value={summaryCards.mtdPnl}
+          subtitle={`${summaryCards.baseDate.slice(5, 7)}월 누적`}
           icon={ChartBarIcon}
           color="bg-emerald-500"
         />
         <PnlSummaryCard
           title="YTD PnL"
-          value={summaryData.ytdPnl}
+          value={summaryCards.ytdPnl}
           subtitle="연초 이후 누적"
           icon={ArrowTrendingUpIcon}
           color="bg-violet-500"
         />
         <PnlSummaryCard
           title="Carry PnL"
-          value={summaryData.carryPnl}
-          subtitle="일 캐리 수익"
+          value={summaryCards.carryPnl}
+          subtitle="일 쿠폰 수익"
           icon={ChartBarIcon}
           color="bg-amber-500"
         />
@@ -119,9 +126,7 @@ export default function PnLPage() {
             (일별 PnL + 누적, 억 단위)
           </span>
         </h2>
-        <Suspense fallback={<div className="h-80 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />}>
-          <PnlTrendChart />
-        </Suspense>
+        <PnlTrendChart data={trend} />
         <div className="mt-2 flex items-center justify-center gap-6 text-xs text-gray-400 dark:text-gray-500">
           <div className="flex items-center gap-1.5">
             <div className="h-3 w-3 rounded-sm bg-blue-400" />
@@ -144,24 +149,46 @@ export default function PnLPage() {
               (억 단위)
             </span>
           </h2>
-          <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />}>
-            <RiskAttributionTable />
-          </Suspense>
+          <RiskAttributionTable />
         </div>
 
-        {/* 펀드별 PnL */}
+        {/* 유형별 PnL Breakdown */}
         <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
           <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
-            펀드별 PnL Breakdown
+            유형별 PnL Breakdown
             <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
-              (일별, 억 단위)
+              (일별, 구조 유형 기준)
             </span>
           </h2>
-          <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />}>
-            <FundPnlTable />
-          </Suspense>
+          <TypePnlTable summary={typeSummary} />
         </div>
       </div>
+    </>
+  );
+}
+
+export default function PnLPage() {
+  return (
+    <main>
+      <Suspense
+        fallback={
+          <div className="space-y-6">
+            <div className="h-8 w-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+              ))}
+            </div>
+            <div className="h-80 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="h-64 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+              <div className="h-64 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+            </div>
+          </div>
+        }
+      >
+        <PnlDashboardContent />
+      </Suspense>
     </main>
   );
 }

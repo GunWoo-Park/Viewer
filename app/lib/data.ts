@@ -1309,3 +1309,319 @@ export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
     return [];
   }
 }
+
+/**
+ * 모든 펀드 대상 유형(type1)별 Daily PnL 요약
+ * 펀드 필터 없이 전체 구조화 상품의 PnL을 유형별로 집계
+ */
+export async function fetchPnlSummaryByTypeAllFunds(): Promise<PnlSummaryByType[]> {
+  noStore();
+
+  try {
+    const datesResult = await sql`
+      SELECT DISTINCT std_dt FROM breakdownprc
+      ORDER BY std_dt DESC LIMIT 2
+    `;
+    if (datesResult.rows.length < 2) return [];
+    const latestDate = String(datesResult.rows[0].std_dt);
+    const prevDate = String(datesResult.rows[1].std_dt);
+
+    const [latestMar, prevMar] = await Promise.all([
+      getMarRateBeforeDate(latestDate),
+      getMarRateBeforeDate(prevDate),
+    ]);
+
+    const result = await sql`
+      SELECT
+        s.curr,
+        COALESCE(NULLIF(s.type1, ''), '기타') AS type1,
+        COUNT(DISTINCT b1.obj_cd) AS count,
+        SUM(b1.avg_prc) AS today_mtm,
+        SUM(b2.avg_prc) AS prev_mtm,
+        COALESCE(SUM(e.coupon_amt), 0) AS total_coupon
+      FROM breakdownprc b1
+      JOIN breakdownprc b2
+        ON b1.obj_cd = b2.obj_cd
+        AND b1.sp_num = b2.sp_num
+        AND b1.tp = b2.tp
+      JOIN strucprdp s ON s.obj_cd = b1.obj_cd
+      LEFT JOIN (
+        SELECT obj_cd, SUM(amt) AS coupon_amt
+        FROM excpnp WHERE pay_dt = ${latestDate}
+        GROUP BY obj_cd
+      ) e ON e.obj_cd = b1.obj_cd
+      WHERE b1.std_dt = ${latestDate}
+        AND b2.std_dt = ${prevDate}
+        AND s.tp != '자체발행'
+      GROUP BY s.curr, COALESCE(NULLIF(s.type1, ''), '기타')
+      ORDER BY s.curr, ABS(SUM(b1.avg_prc) - SUM(b2.avg_prc)) DESC
+    `;
+
+    return result.rows.map((r) => {
+      const curr = String(r.curr);
+      let todayMtm = Number(r.today_mtm);
+      let prevMtm = Number(r.prev_mtm);
+      let totalCoupon = Number(r.total_coupon);
+
+      if (curr === 'USD' && latestMar > 0 && prevMar > 0) {
+        todayMtm = todayMtm / latestMar;
+        prevMtm = prevMtm / prevMar;
+        totalCoupon = totalCoupon / latestMar;
+      }
+
+      const totalDailyPnl = todayMtm - prevMtm;
+      const totalPnl = totalDailyPnl + totalCoupon;
+      const krwMul = (curr === 'USD' && latestMar > 0) ? latestMar : 1;
+      const totalDailyPnlKrw = totalDailyPnl * krwMul;
+      const totalCouponKrw = totalCoupon * krwMul;
+
+      return {
+        curr,
+        type1: String(r.type1),
+        count: Number(r.count),
+        total_daily_pnl: totalDailyPnl,
+        total_coupon: totalCoupon,
+        total_pnl: totalPnl,
+        total_daily_pnl_krw: totalDailyPnlKrw,
+        total_coupon_krw: totalCouponKrw,
+        total_pnl_krw: totalDailyPnlKrw + totalCouponKrw,
+      };
+    });
+  } catch (error) {
+    console.error('fetchPnlSummaryByTypeAllFunds Error:', error);
+    return [];
+  }
+}
+
+/**
+ * YTD PnL 추이 데이터
+ * 단일 쿼리로 모든 연속 날짜 쌍의 PnL을 한번에 계산 (성능 최적화)
+ */
+export async function fetchPnlTrend(): Promise<{
+  trend: { date: string; daily: number; cumulative: number }[];
+  latestDate: string;
+}> {
+  noStore();
+
+  try {
+    // 모든 날짜 조회
+    const datesResult = await sql`
+      SELECT DISTINCT std_dt FROM breakdownprc ORDER BY std_dt ASC
+    `;
+    const allDates = datesResult.rows.map((r) => String(r.std_dt));
+    if (allDates.length < 2) return { trend: [], latestDate: '' };
+
+    // 모든 MAR 데이터 조회
+    const marResult = await sql`
+      SELECT std_dt, clprc_val FROM eq_unasp
+      WHERE unas_id = 'USD/KRW_MAR'
+      ORDER BY std_dt ASC
+    `;
+    const marTimeline = marResult.rows.map((r) => ({
+      dt: String(r.std_dt),
+      val: Number(r.clprc_val),
+    }));
+
+    function getMarBefore(targetDate: string): number {
+      let bestVal = 0;
+      for (const m of marTimeline) {
+        if (m.dt < targetDate) bestVal = m.val;
+        else break;
+      }
+      return bestVal;
+    }
+
+    // 종목별 날짜×MTM을 한번에 가져와서 JS에서 매칭 (N+1 쿼리 회피)
+    const allMtmResult = await sql`
+      SELECT
+        b.obj_cd,
+        b.std_dt,
+        s.curr,
+        SUM(b.avg_prc) AS mtm
+      FROM breakdownprc b
+      JOIN strucprdp s ON s.obj_cd = b.obj_cd
+      WHERE s.tp != '자체발행'
+      GROUP BY b.obj_cd, b.std_dt, s.curr
+    `;
+
+    // obj_cd → { dt → mtm }
+    const objMap: Record<string, { curr: string; byDate: Record<string, number> }> = {};
+    for (const r of allMtmResult.rows) {
+      const objCd = String(r.obj_cd);
+      const dt = String(r.std_dt);
+      const curr = String(r.curr);
+      const mtm = Number(r.mtm);
+      if (!objMap[objCd]) objMap[objCd] = { curr, byDate: {} };
+      objMap[objCd].byDate[dt] = mtm;
+    }
+
+    // 쿠폰 전체 조회
+    const couponResult = await sql`
+      SELECT
+        e.pay_dt,
+        s.curr,
+        SUM(e.amt) AS coupon
+      FROM excpnp e
+      JOIN strucprdp s ON s.obj_cd = e.obj_cd
+      WHERE s.tp != '자체발행'
+      GROUP BY e.pay_dt, s.curr
+    `;
+
+    const couponMap: Record<string, Record<string, number>> = {};
+    for (const r of couponResult.rows) {
+      const dt = String(r.pay_dt);
+      const curr = String(r.curr);
+      if (!couponMap[dt]) couponMap[dt] = {};
+      couponMap[dt][curr] = Number(r.coupon);
+    }
+
+    // 일별 PnL 계산 (연속 날짜 쌍에서 양쪽 모두 존재하는 종목만 비교)
+    const trend: { date: string; daily: number; cumulative: number }[] = [];
+    let cumulative = 0;
+
+    for (let i = 1; i < allDates.length; i++) {
+      const prevDt = allDates[i - 1];
+      const currDt = allDates[i];
+      const currMar = getMarBefore(currDt);
+      const prevMarVal = getMarBefore(prevDt);
+
+      // 통화별 MTM 변동 집계 (양쪽 날짜 모두 있는 종목만)
+      const mtmDiff: Record<string, number> = {};
+      for (const [, entry] of Object.entries(objMap)) {
+        const todayMtm = entry.byDate[currDt];
+        const prevMtm = entry.byDate[prevDt];
+        if (todayMtm === undefined || prevMtm === undefined) continue;
+
+        const curr = entry.curr;
+        if (!mtmDiff[curr]) mtmDiff[curr] = 0;
+        mtmDiff[curr] += todayMtm - prevMtm;
+      }
+
+      let dailyPnlKrw = 0;
+      const currencies = new Set([
+        ...Object.keys(mtmDiff),
+        ...Object.keys(couponMap[currDt] || {}),
+      ]);
+
+      for (const curr of currencies) {
+        let diff = mtmDiff[curr] || 0;
+        let coupon = couponMap[currDt]?.[curr] || 0;
+
+        if (curr === 'USD' && currMar > 0 && prevMarVal > 0) {
+          // USD MTM 변동을 dual MAR로 계산하려면 종목별로 해야 하지만,
+          // 추이 차트에서는 총합 수준에서 근사: (today/currMar - prev/prevMar) ≈ diff처리
+          // 정확한 계산: 개별 종목의 (mtm_today/currMar - mtm_prev/prevMar)
+          let usdDiff = 0;
+          for (const [, entry] of Object.entries(objMap)) {
+            if (entry.curr !== 'USD') continue;
+            const tMtm = entry.byDate[currDt];
+            const pMtm = entry.byDate[prevDt];
+            if (tMtm === undefined || pMtm === undefined) continue;
+            usdDiff += (tMtm / currMar) - (pMtm / prevMarVal);
+          }
+          diff = usdDiff;
+          coupon = coupon / currMar;
+        }
+
+        const pnl = diff + coupon;
+        const krwMul = (curr === 'USD' && currMar > 0) ? currMar : 1;
+        dailyPnlKrw += pnl * krwMul;
+      }
+
+      cumulative += dailyPnlKrw;
+      const dailyEok = dailyPnlKrw / 100000000;
+      const cumulativeEok = cumulative / 100000000;
+
+      trend.push({
+        date: `${currDt.slice(4, 6)}/${currDt.slice(6, 8)}`,
+        daily: Math.round(dailyEok * 100) / 100,
+        cumulative: Math.round(cumulativeEok * 100) / 100,
+      });
+    }
+
+    return { trend, latestDate: allDates[allDates.length - 1] };
+  } catch (error) {
+    console.error('fetchPnlTrend Error:', error);
+    return { trend: [], latestDate: '' };
+  }
+}
+
+/**
+ * PnL 요약 카드 데이터 (Daily/MTD/YTD/Carry)
+ * breakdownprc 기반 실제 계산
+ */
+export async function fetchPnlSummaryCards(): Promise<{
+  dailyPnl: number;
+  mtdPnl: number;
+  ytdPnl: number;
+  carryPnl: number;
+  baseDate: string;
+}> {
+  noStore();
+
+  try {
+    const { trend, latestDate } = await fetchPnlTrend();
+    if (trend.length === 0) {
+      return { dailyPnl: 0, mtdPnl: 0, ytdPnl: 0, carryPnl: 0, baseDate: '' };
+    }
+
+    // Daily: 마지막 날짜 PnL (억)
+    const dailyPnl = trend[trend.length - 1].daily;
+
+    // YTD: 누적 합계 (억)
+    const ytdPnl = trend[trend.length - 1].cumulative;
+
+    // MTD: 이번 달 PnL 합계 (억)
+    const latestMonth = latestDate.slice(0, 6);
+    const mtdPnl = trend
+      .filter((t) => {
+        // date format: MM/DD → 월 추출
+        const mm = t.date.slice(0, 2);
+        return latestMonth.endsWith(mm);
+      })
+      .reduce((s, t) => s + t.daily, 0);
+
+    // Carry PnL: 최신일 쿠폰 합계 (억 단위)
+    const datesResult = await sql`
+      SELECT DISTINCT std_dt FROM breakdownprc ORDER BY std_dt DESC LIMIT 1
+    `;
+    const currDate = String(datesResult.rows[0]?.std_dt || '');
+    let carryPnl = 0;
+    if (currDate) {
+      const latestMar = await getMarRateBeforeDate(currDate);
+      const couponResult = await sql`
+        SELECT s.curr, SUM(e.amt) AS coupon
+        FROM excpnp e
+        JOIN strucprdp s ON s.obj_cd = e.obj_cd
+        WHERE e.pay_dt = ${currDate}
+          AND s.tp != '자체발행'
+        GROUP BY s.curr
+      `;
+      for (const r of couponResult.rows) {
+        const curr = String(r.curr);
+        let coupon = Number(r.coupon);
+        if (curr === 'USD' && latestMar > 0) {
+          // USD 쿠폰은 이미 원화 → MAR로 나누고 다시 곱하면 원본
+          // 실제로 excpnp의 amt는 통화 기준이므로 그대로 원화
+        }
+        carryPnl += coupon;
+      }
+      carryPnl = Math.round((carryPnl / 100000000) * 100) / 100;
+    }
+
+    const baseDate = latestDate
+      ? `${latestDate.slice(0, 4)}-${latestDate.slice(4, 6)}-${latestDate.slice(6, 8)}`
+      : '';
+
+    return {
+      dailyPnl: Math.round(dailyPnl * 100) / 100,
+      mtdPnl: Math.round(mtdPnl * 100) / 100,
+      ytdPnl: Math.round(ytdPnl * 100) / 100,
+      carryPnl,
+      baseDate,
+    };
+  } catch (error) {
+    console.error('fetchPnlSummaryCards Error:', error);
+    return { dailyPnl: 0, mtdPnl: 0, ytdPnl: 0, carryPnl: 0, baseDate: '' };
+  }
+}

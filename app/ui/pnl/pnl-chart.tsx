@@ -1,113 +1,100 @@
 'use client';
 
-// 2026년 1~2월 영업일 일별 PnL mock 데이터 (억 단위)
-const dailyPnlData = [
-  { date: '01/02', daily: 1.8, cumulative: 1.8 },
-  { date: '01/05', daily: -0.5, cumulative: 1.3 },
-  { date: '01/06', daily: 2.1, cumulative: 3.4 },
-  { date: '01/07', daily: 0.7, cumulative: 4.1 },
-  { date: '01/08', daily: -1.2, cumulative: 2.9 },
-  { date: '01/09', daily: 0.9, cumulative: 3.8 },
-  { date: '01/12', daily: 1.5, cumulative: 5.3 },
-  { date: '01/13', daily: 0.3, cumulative: 5.6 },
-  { date: '01/14', daily: -0.8, cumulative: 4.8 },
-  { date: '01/15', daily: 2.4, cumulative: 7.2 },
-  { date: '01/16', daily: 1.1, cumulative: 8.3 },
-  { date: '01/19', daily: -0.3, cumulative: 8.0 },
-  { date: '01/20', daily: 0.6, cumulative: 8.6 },
-  { date: '01/21', daily: 1.9, cumulative: 10.5 },
-  { date: '01/22', daily: -2.1, cumulative: 8.4 },
-  { date: '01/23', daily: 0.4, cumulative: 8.8 },
-  { date: '01/26', daily: -0.7, cumulative: 8.1 },
-  { date: '01/27', daily: 3.2, cumulative: 11.3 },
-  { date: '01/28', daily: 1.4, cumulative: 12.7 },
-  { date: '01/29', daily: -0.9, cumulative: 11.8 },
-  { date: '01/30', daily: 2.8, cumulative: 14.6 },
-  { date: '02/02', daily: 1.3, cumulative: 15.9 },
-  { date: '02/03', daily: -0.4, cumulative: 15.5 },
-  { date: '02/04', daily: 2.6, cumulative: 18.1 },
-  { date: '02/05', daily: 0.8, cumulative: 18.9 },
-  { date: '02/06', daily: -1.7, cumulative: 17.2 },
-  { date: '02/09', daily: 1.1, cumulative: 18.3 },
-  { date: '02/10', daily: 0.5, cumulative: 18.8 },
-  { date: '02/11', daily: 3.1, cumulative: 21.9 },
-  { date: '02/12', daily: -0.6, cumulative: 21.3 },
-  { date: '02/13', daily: 1.9, cumulative: 23.2 },
-  { date: '02/19', daily: -1.3, cumulative: 21.9 },
-  { date: '02/20', daily: 2.2, cumulative: 24.1 },
-  { date: '02/23', daily: 0.7, cumulative: 24.8 },
-  { date: '02/24', daily: -0.4, cumulative: 24.4 },
-  { date: '02/25', daily: 1.5, cumulative: 25.9 },
-  { date: '02/26', daily: 1.2, cumulative: 27.1 },
-];
+import { PnlSummaryByType } from '@/app/lib/definitions';
 
-// 펀드별 PnL Attribution (억 단위)
-const fundPnlData = [
-  { name: '구조화 (10206020)', prc_pnl: 0.82, int_pnl: 3.15, trd_pnl: -0.23, mny_pnl: 0.04, total: 3.78 },
-  { name: '캐리매칭 (10206030)', prc_pnl: 0.15, int_pnl: 1.42, trd_pnl: 0.08, mny_pnl: 0.01, total: 1.66 },
-  { name: 'Flow (10206010)', prc_pnl: -0.34, int_pnl: 0.67, trd_pnl: 0.45, mny_pnl: -0.02, total: 0.76 },
-  { name: '외화 IRS (10206040)', prc_pnl: 1.23, int_pnl: 0.89, trd_pnl: -0.56, mny_pnl: 0.03, total: 1.59 },
-  { name: 'ELN/DLS (10206050)', prc_pnl: -0.87, int_pnl: 0.34, trd_pnl: 0.12, mny_pnl: 0.00, total: -0.41 },
-];
+// --- 유형별 색상 (구조화 상품 탭과 동일) ---
+const TYPE_COLOR: Record<string, string> = {
+  'Range Accrual': 'text-sky-700 dark:text-sky-300',
+  Spread: 'text-amber-700 dark:text-amber-300',
+  Floater: 'text-teal-700 dark:text-teal-300',
+  InvF: 'text-indigo-700 dark:text-indigo-300',
+  Power: 'text-orange-700 dark:text-orange-300',
+  'Zero Callable': 'text-purple-700 dark:text-purple-300',
+};
 
-// 리스크 요인별 PnL Attribution (억 단위)
-const riskPnlData = [
-  { factor: 'Carry', daily: 3.21, mtd: 12.45, ytd: 27.82 },
-  { factor: 'Delta (금리)', daily: -1.34, mtd: -2.18, ytd: 5.43 },
-  { factor: 'Gamma/Convexity', daily: 0.12, mtd: 0.87, ytd: 1.95 },
-  { factor: 'Vega (변동성)', daily: -0.28, mtd: -0.63, ytd: -1.12 },
-  { factor: 'FX', daily: 0.45, mtd: 1.92, ytd: -3.21 },
-  { factor: 'Credit Spread', daily: -0.08, mtd: -0.34, ytd: -0.87 },
-  { factor: 'Theta (시간가치)', daily: 0.06, mtd: 0.32, ytd: 0.68 },
-  { factor: '기타/잔차', daily: -0.94, mtd: 0.09, ytd: -3.57 },
-];
+// KRW 포맷 (억/만)
+function fmtKrw(v: number): string {
+  const b = v / 100000000;
+  if (Math.abs(b) >= 0.1) {
+    return `${b >= 0 ? '+' : ''}${b.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억`;
+  }
+  const m = v / 10000;
+  return `${m >= 0 ? '+' : ''}${m.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+}
 
-// --- 순수 SVG 차트 ---
+// USD 포맷 ($M / $K)
+function fmtUsd(v: number): string {
+  const m = v / 1000000;
+  if (Math.abs(m) >= 0.1) {
+    return `${v >= 0 ? '+' : '-'}$${Math.abs(m).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+  }
+  const k = v / 1000;
+  return `${v >= 0 ? '+' : '-'}$${Math.abs(k).toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
+}
 
-export function PnlTrendChart() {
-  const data = dailyPnlData;
+function fmtAmt(krwVal: number, curr: string, usdVal?: number): string {
+  const main = fmtKrw(krwVal);
+  if (curr === 'USD' && usdVal !== undefined) {
+    return `${main} (${fmtUsd(usdVal)})`;
+  }
+  return main;
+}
+
+function amtColor(v: number): string {
+  if (v > 0) return 'text-emerald-600 dark:text-emerald-400';
+  if (v < 0) return 'text-rose-600 dark:text-rose-400';
+  return 'text-gray-500 dark:text-gray-400';
+}
+
+// ========== PnL 추이 차트 (실제 데이터) ==========
+
+export function PnlTrendChart({
+  data,
+}: {
+  data: { date: string; daily: number; cumulative: number }[];
+}) {
+  if (data.length === 0) {
+    return (
+      <div className="flex h-60 items-center justify-center text-gray-400 dark:text-gray-500">
+        PnL 추이 데이터가 없습니다
+      </div>
+    );
+  }
+
   const n = data.length;
-
-  // 차트 영역 설정
   const W = 900, H = 300;
   const padL = 55, padR = 15, padT = 20, padB = 40;
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
 
-  // Y축 범위 (daily & cumulative 모두 포함)
   const allVals = data.flatMap((d) => [d.daily, d.cumulative]);
   const yMin = Math.floor(Math.min(...allVals) - 1);
   const yMax = Math.ceil(Math.max(...allVals) + 1);
-  const yRange = yMax - yMin;
+  const yRange = yMax - yMin || 1;
 
-  const toX = (i: number) => padL + (i / (n - 1)) * chartW;
+  const toX = (i: number) => padL + (i / Math.max(n - 1, 1)) * chartW;
   const toY = (v: number) => padT + ((yMax - v) / yRange) * chartH;
   const zeroY = toY(0);
 
-  // 바 너비
-  const barW = Math.max(chartW / n * 0.6, 8);
+  const barW = Math.max((chartW / n) * 0.6, 8);
 
-  // 누적 PnL 라인 path
   const linePath = data
     .map((d, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(d.cumulative).toFixed(1)}`)
     .join(' ');
 
-  // Y축 그리드 라인
   const yTicks: number[] = [];
-  for (let v = Math.ceil(yMin); v <= Math.floor(yMax); v += 5) {
+  const step = Math.max(Math.ceil(yRange / 8), 1);
+  for (let v = Math.ceil(yMin / step) * step; v <= yMax; v += step) {
     yTicks.push(v);
   }
-  // 0도 포함
   if (!yTicks.includes(0)) yTicks.push(0);
   yTicks.sort((a, b) => a - b);
 
-  // X축 라벨 (5개씩 skip)
   const labelInterval = Math.ceil(n / 10);
 
   return (
     <div className="w-full overflow-x-auto">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[600px]" style={{ maxHeight: 320 }}>
-        {/* 그리드 */}
         {yTicks.map((v) => (
           <g key={v}>
             <line
@@ -123,7 +110,6 @@ export function PnlTrendChart() {
           </g>
         ))}
 
-        {/* 바 차트 (Daily PnL) */}
         {data.map((d, i) => {
           const x = toX(i) - barW / 2;
           const barTop = d.daily >= 0 ? toY(d.daily) : zeroY;
@@ -131,25 +117,22 @@ export function PnlTrendChart() {
           const fill = d.daily >= 0 ? '#60A5FA' : '#F87171';
           return (
             <rect
-              key={d.date}
+              key={d.date + i}
               x={x} y={barTop} width={barW} height={Math.max(barH, 1)}
               fill={fill} rx={2} opacity={0.75}
             />
           );
         })}
 
-        {/* 누적 라인 */}
         <path d={linePath} fill="none" stroke="#F59E0B" strokeWidth={2.5} />
-        {/* 누적 라인 도트 */}
         {data.map((d, i) => (
-          <circle key={d.date} cx={toX(i)} cy={toY(d.cumulative)} r={2.5} fill="#F59E0B" />
+          <circle key={d.date + i} cx={toX(i)} cy={toY(d.cumulative)} r={2.5} fill="#F59E0B" />
         ))}
 
-        {/* X축 라벨 */}
         {data.map((d, i) =>
           i % labelInterval === 0 ? (
             <text
-              key={d.date}
+              key={d.date + i}
               x={toX(i)} y={H - 8}
               textAnchor="middle"
               className="fill-gray-400"
@@ -160,7 +143,6 @@ export function PnlTrendChart() {
           ) : null,
         )}
 
-        {/* 마지막 누적값 라벨 */}
         <text
           x={toX(n - 1) + 5}
           y={toY(data[n - 1].cumulative) - 8}
@@ -175,64 +157,144 @@ export function PnlTrendChart() {
   );
 }
 
-// 펀드별 PnL 테이블
-export function FundPnlTable() {
-  const total = {
-    prc_pnl: fundPnlData.reduce((s, r) => s + r.prc_pnl, 0),
-    int_pnl: fundPnlData.reduce((s, r) => s + r.int_pnl, 0),
-    trd_pnl: fundPnlData.reduce((s, r) => s + r.trd_pnl, 0),
-    mny_pnl: fundPnlData.reduce((s, r) => s + r.mny_pnl, 0),
-    total: fundPnlData.reduce((s, r) => s + r.total, 0),
-  };
+// ========== 유형별 PnL Breakdown 테이블 ==========
 
-  const fmt = (v: number) => {
-    const color = v > 0.005
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : v < -0.005
-        ? 'text-rose-600 dark:text-rose-400'
-        : 'text-gray-500 dark:text-gray-400';
-    return <span className={`font-mono ${color}`}>{v > 0 ? '+' : ''}{v.toFixed(2)}</span>;
-  };
+export function TypePnlTable({
+  summary,
+}: {
+  summary: PnlSummaryByType[];
+}) {
+  if (summary.length === 0) {
+    return (
+      <div className="flex h-40 items-center justify-center text-gray-400 dark:text-gray-500">
+        PnL 데이터가 없습니다
+      </div>
+    );
+  }
+
+  // 통화별 그룹
+  const currencies = ['KRW', 'USD'];
+  const byCurr: Record<string, PnlSummaryByType[]> = {};
+  for (const c of currencies) {
+    const items = summary.filter((s) => s.curr === c);
+    if (items.length > 0) byCurr[c] = items;
+  }
+  const others = summary.filter((s) => !currencies.includes(s.curr));
+  if (others.length > 0) byCurr['기타'] = others;
+
+  const totalPnlKrw = summary.reduce((s, r) => s + r.total_pnl_krw, 0);
+  const totalCount = summary.reduce((s, r) => s + r.count, 0);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs text-gray-500 dark:text-gray-400">
-            <th className="py-2 pr-4 font-medium">펀드</th>
-            <th className="py-2 px-3 font-medium text-right">평가손익</th>
-            <th className="py-2 px-3 font-medium text-right">이자손익</th>
-            <th className="py-2 px-3 font-medium text-right">매매손익</th>
-            <th className="py-2 px-3 font-medium text-right">자금손익</th>
-            <th className="py-2 px-3 font-medium text-right">합계 (억)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {fundPnlData.map((row) => (
-            <tr key={row.name} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-              <td className="py-2.5 pr-4 text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">{row.name}</td>
-              <td className="py-2.5 px-3 text-right">{fmt(row.prc_pnl)}</td>
-              <td className="py-2.5 px-3 text-right">{fmt(row.int_pnl)}</td>
-              <td className="py-2.5 px-3 text-right">{fmt(row.trd_pnl)}</td>
-              <td className="py-2.5 px-3 text-right">{fmt(row.mny_pnl)}</td>
-              <td className="py-2.5 px-3 text-right font-bold">{fmt(row.total)}</td>
-            </tr>
-          ))}
-          <tr className="border-t-2 border-gray-300 dark:border-gray-600 font-bold">
-            <td className="py-2.5 pr-4 text-gray-800 dark:text-gray-200">합계</td>
-            <td className="py-2.5 px-3 text-right">{fmt(total.prc_pnl)}</td>
-            <td className="py-2.5 px-3 text-right">{fmt(total.int_pnl)}</td>
-            <td className="py-2.5 px-3 text-right">{fmt(total.trd_pnl)}</td>
-            <td className="py-2.5 px-3 text-right">{fmt(total.mny_pnl)}</td>
-            <td className="py-2.5 px-3 text-right">{fmt(total.total)}</td>
-          </tr>
-        </tbody>
-      </table>
+    <div>
+      {/* 전체 합계 헤더 */}
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className={`text-lg font-bold font-mono ${amtColor(totalPnlKrw)}`}>
+          {fmtKrw(totalPnlKrw)}
+        </span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">({totalCount}종목)</span>
+      </div>
+
+      <div className="space-y-2">
+        {Object.entries(byCurr).map(([curr, items]) => {
+          const currTotalKrw = items.reduce((s, r) => s + r.total_pnl_krw, 0);
+          const currMtmKrw = items.reduce((s, r) => s + r.total_daily_pnl_krw, 0);
+          const currCouponKrw = items.reduce((s, r) => s + r.total_coupon_krw, 0);
+          const currCount = items.reduce((s, r) => s + r.count, 0);
+          const isUsd = curr === 'USD';
+          const currTotalUsd = isUsd ? items.reduce((s, r) => s + r.total_pnl, 0) : 0;
+          const currMtmUsd = isUsd ? items.reduce((s, r) => s + r.total_daily_pnl, 0) : 0;
+          const currCouponUsd = isUsd ? items.reduce((s, r) => s + r.total_coupon, 0) : 0;
+
+          return (
+            <div
+              key={curr}
+              className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
+            >
+              {/* 통화 헤더 */}
+              <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                    curr === 'KRW'
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                      : 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
+                  }`}>
+                    {curr}
+                  </span>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">{currCount}종목</span>
+                </div>
+                <span className={`text-sm font-bold font-mono ${amtColor(currTotalKrw)}`}>
+                  {fmtAmt(currTotalKrw, curr, isUsd ? currTotalUsd : undefined)}
+                </span>
+              </div>
+
+              {/* 유형별 행 */}
+              <table className="w-full text-xs">
+                <tbody>
+                  {items.map((s) => (
+                    <tr
+                      key={s.type1}
+                      className="border-b border-gray-100 dark:border-gray-800 last:border-0"
+                    >
+                      <td className="pl-3 py-1">
+                        <span className={`font-medium ${TYPE_COLOR[s.type1] || 'text-gray-600 dark:text-gray-400'}`}>
+                          {s.type1}
+                        </span>
+                        <span className="ml-1 text-[10px] text-gray-400">{s.count}</span>
+                      </td>
+                      <td className={`text-right font-mono font-semibold pr-1 ${amtColor(s.total_daily_pnl_krw)}`}>
+                        {fmtAmt(s.total_daily_pnl_krw, curr, isUsd ? s.total_daily_pnl : undefined)}
+                      </td>
+                      <td className="text-right pr-3 w-24">
+                        {s.total_coupon !== 0 ? (
+                          <span className={`font-mono text-[10px] ${amtColor(s.total_coupon_krw)}`}>
+                            cpn {fmtAmt(s.total_coupon_krw, curr, isUsd ? s.total_coupon : undefined)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 dark:text-gray-600">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {/* 소계 */}
+                  <tr className="bg-gray-50/50 dark:bg-gray-800/50">
+                    <td className="pl-3 py-1 text-gray-500 dark:text-gray-400 font-medium">소계</td>
+                    <td className={`text-right font-mono font-bold pr-1 ${amtColor(currMtmKrw)}`}>
+                      {fmtAmt(currMtmKrw, curr, isUsd ? currMtmUsd : undefined)}
+                    </td>
+                    <td className="text-right pr-3">
+                      {currCouponKrw !== 0 ? (
+                        <span className={`font-mono text-[10px] font-semibold ${amtColor(currCouponKrw)}`}>
+                          cpn {fmtAmt(currCouponKrw, curr, isUsd ? currCouponUsd : undefined)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 dark:text-gray-600">-</span>
+                      )}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-// 리스크 요인별 PnL Attribution 테이블
+// ========== Risk Factor Attribution (mock 유지) ==========
+
+const riskPnlData = [
+  { factor: 'Carry', daily: 3.21, mtd: 12.45, ytd: 27.82 },
+  { factor: 'Delta (금리)', daily: -1.34, mtd: -2.18, ytd: 5.43 },
+  { factor: 'Gamma/Convexity', daily: 0.12, mtd: 0.87, ytd: 1.95 },
+  { factor: 'Vega (변동성)', daily: -0.28, mtd: -0.63, ytd: -1.12 },
+  { factor: 'FX', daily: 0.45, mtd: 1.92, ytd: -3.21 },
+  { factor: 'Credit Spread', daily: -0.08, mtd: -0.34, ytd: -0.87 },
+  { factor: 'Theta (시간가치)', daily: 0.06, mtd: 0.32, ytd: 0.68 },
+  { factor: '기타/잔차', daily: -0.94, mtd: 0.09, ytd: -3.57 },
+];
+
 export function RiskAttributionTable() {
   const total = {
     daily: riskPnlData.reduce((s, r) => s + r.daily, 0),
@@ -249,7 +311,6 @@ export function RiskAttributionTable() {
     return <span className={`font-mono ${color}`}>{v > 0 ? '+' : ''}{v.toFixed(2)}</span>;
   };
 
-  // 비중 바 (daily 기준)
   const maxAbs = Math.max(...riskPnlData.map((r) => Math.abs(r.daily)));
 
   return (
