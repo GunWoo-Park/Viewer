@@ -36,6 +36,18 @@ function amtColor(v: number): string {
   return 'text-gray-500 dark:text-gray-400';
 }
 
+// 액면 포맷 (억 단위, 부호 없음)
+function fmtNotn(v: number, curr: string): string {
+  if (curr === 'USD') {
+    const m = v / 1000000;
+    if (Math.abs(m) >= 1) return `$${m.toLocaleString('en-US', { maximumFractionDigits: 0 })}M`;
+    const k = v / 1000;
+    return `$${k.toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
+  }
+  const eok = v / 100000000;
+  return `${eok.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}억`;
+}
+
 // 유형별 텍스트 색상
 const TYPE_COLOR: Record<string, string> = {
   'Range Accrual': 'text-sky-700 dark:text-sky-300',
@@ -73,7 +85,7 @@ export default function PnlSummaryCards({
 
   // 전체 원화 환산 합계
   const totalPnlKrw = summary.reduce((s, r) => s + r.total_pnl_krw, 0);
-  const totalCount = summary.reduce((s, r) => s + r.count, 0);
+  const totalAssetCount = summary.reduce((s, r) => s + r.asset_count, 0);
 
   return (
     <div className="mb-6">
@@ -87,7 +99,7 @@ export default function PnlSummaryCards({
           {fmtKrw(totalPnlKrw)}
         </span>
         <span className="text-xs text-gray-400 dark:text-gray-500">
-          ({totalCount}종목)
+          ({totalAssetCount}종목)
         </span>
       </div>
 
@@ -98,7 +110,7 @@ export default function PnlSummaryCards({
           const currTotalKrw = items.reduce((s, r) => s + r.total_pnl_krw, 0);
           const currMtmKrw = items.reduce((s, r) => s + r.total_daily_pnl_krw, 0);
           const currCouponKrw = items.reduce((s, r) => s + r.total_coupon_krw, 0);
-          const currCount = items.reduce((s, r) => s + r.count, 0);
+          const currAssetCount = items.reduce((s, r) => s + r.asset_count, 0);
           // USD 달러 합계 (괄호 표시용)
           const isUsd = curr === 'USD';
           const currTotalUsd = isUsd ? items.reduce((s, r) => s + r.total_pnl, 0) : 0;
@@ -120,7 +132,7 @@ export default function PnlSummaryCards({
                   }`}>
                     {curr}
                   </span>
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500">{currCount}종목</span>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">{currAssetCount}종목</span>
                 </div>
                 <span className={`text-sm font-bold font-mono ${amtColor(currTotalKrw)}`}>
                   {fmtAmt(currTotalKrw, curr, isUsd ? currTotalUsd : undefined)}
@@ -137,9 +149,12 @@ export default function PnlSummaryCards({
                     >
                       <td className="pl-3 py-1">
                         <span className={`font-medium ${TYPE_COLOR[s.type1] || 'text-gray-600 dark:text-gray-400'}`}>
-                          {s.type1}
+                          {s.struct_type}
                         </span>
-                        <span className="ml-1 text-[10px] text-gray-400">{s.count}</span>
+                        <span className="ml-1 text-[10px] text-gray-400">
+                          {s.asset_count > 0 ? `${s.asset_count}종목` : ''}{' '}
+                          {s.total_notional > 0 ? fmtNotn(s.total_notional, s.curr) : ''}
+                        </span>
                       </td>
                       <td className={`text-right font-mono font-semibold pr-1 ${amtColor(s.total_daily_pnl_krw)}`}>
                         {fmtAmt(s.total_daily_pnl_krw, curr, isUsd ? s.total_daily_pnl : undefined)}

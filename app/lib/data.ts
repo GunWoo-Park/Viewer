@@ -1107,11 +1107,82 @@ async function getMarRateBeforeDate(targetDate: string): Promise<number> {
 }
 
 /**
+ * call_yn 자동 감지 및 업데이트
+ * 발행일(eff_dt) 이후 breakdownprc의 전체 TP MTM 합산이 0이 되면
+ * 해당 종목은 조기상환(call)된 것으로 판단하여 call_yn='Y'로 업데이트
+ * 최초 MTM=0이 된 날짜를 call_dt로 기록
+ * @returns 업데이트된 종목 수
+ */
+export async function autoDetectCallYn(): Promise<{ updated: number; details: { obj_cd: string; call_dt: string }[] }> {
+  noStore();
+  try {
+    // call_yn='N'인 종목 중, 발행일 이후 어떤 영업일에 MTM 합산=0인 종목 찾기
+    const result = await sql`
+      WITH zero_mtm AS (
+        SELECT
+          s.obj_cd,
+          s.eff_dt,
+          b.std_dt,
+          SUM(b.avg_prc) AS total_mtm
+        FROM strucprdp s
+        JOIN breakdownprc b ON b.obj_cd = s.obj_cd
+        WHERE s.call_yn = 'N'
+          AND b.std_dt > s.eff_dt
+        GROUP BY s.obj_cd, s.eff_dt, b.std_dt
+        HAVING ABS(SUM(b.avg_prc)) < 0.01
+      ),
+      first_zero AS (
+        SELECT obj_cd, MIN(std_dt) AS call_dt
+        FROM zero_mtm
+        GROUP BY obj_cd
+      )
+      SELECT obj_cd, call_dt FROM first_zero ORDER BY obj_cd
+    `;
+
+    const details: { obj_cd: string; call_dt: string }[] = [];
+
+    for (const row of result.rows) {
+      const objCd = String(row.obj_cd);
+      const callDt = String(row.call_dt);
+      // call_yn='Y', call_dt 업데이트
+      await sql`
+        UPDATE strucprdp
+        SET call_yn = 'Y', call_dt = ${callDt}, updated_at = NOW()
+        WHERE obj_cd = ${objCd} AND call_yn = 'N'
+      `;
+      details.push({ obj_cd: objCd, call_dt: callDt });
+    }
+
+    return { updated: details.length, details };
+  } catch (error) {
+    console.error('autoDetectCallYn Error:', error);
+    return { updated: 0, details: [] };
+  }
+}
+
+/**
+ * breakdownprc에 존재하는 영업일 목록 (최신 → 과거 순)
+ */
+export async function fetchAvailableDates(): Promise<string[]> {
+  noStore();
+  try {
+    const result = await sql`
+      SELECT DISTINCT std_dt FROM breakdownprc ORDER BY std_dt DESC
+    `;
+    return result.rows.map((r) => String(r.std_dt));
+  } catch (error) {
+    console.error('fetchAvailableDates Error:', error);
+    return [];
+  }
+}
+
+/**
  * 종목별 Daily PnL 조회
+ * targetDate를 지정하면 해당일 기준, 미지정시 최신일 기준
  * USD PnL = (당일가격/당일-1MAR) - (전일가격/전일-1MAR)
  * USD 쿠폰 = coupon_amt / (pay_dt-1영업일 MAR)
  */
-export async function fetchProductDailyPnl(): Promise<{
+export async function fetchProductDailyPnl(targetDate?: string): Promise<{
   pnlMap: Record<string, ProductDailyPnl>;
   latestDate: string;
   prevDate: string;
@@ -1121,16 +1192,33 @@ export async function fetchProductDailyPnl(): Promise<{
   noStore();
 
   try {
-    // 최근 2영업일 조회
-    const datesResult = await sql`
-      SELECT DISTINCT std_dt FROM breakdownprc
-      ORDER BY std_dt DESC LIMIT 2
-    `;
-    if (datesResult.rows.length < 2) {
-      return { pnlMap: {}, latestDate: '', prevDate: '', latestMar: 0, prevMar: 0 };
+    // targetDate 기준 또는 최신 2영업일 조회
+    let latestDate: string;
+    let prevDate: string;
+
+    if (targetDate) {
+      // targetDate 직전 영업일을 prevDate로 사용
+      const datesResult = await sql`
+        SELECT DISTINCT std_dt FROM breakdownprc
+        WHERE std_dt <= ${targetDate}
+        ORDER BY std_dt DESC LIMIT 2
+      `;
+      if (datesResult.rows.length < 2) {
+        return { pnlMap: {}, latestDate: '', prevDate: '', latestMar: 0, prevMar: 0 };
+      }
+      latestDate = String(datesResult.rows[0].std_dt);
+      prevDate = String(datesResult.rows[1].std_dt);
+    } else {
+      const datesResult = await sql`
+        SELECT DISTINCT std_dt FROM breakdownprc
+        ORDER BY std_dt DESC LIMIT 2
+      `;
+      if (datesResult.rows.length < 2) {
+        return { pnlMap: {}, latestDate: '', prevDate: '', latestMar: 0, prevMar: 0 };
+      }
+      latestDate = String(datesResult.rows[0].std_dt);
+      prevDate = String(datesResult.rows[1].std_dt);
     }
-    const latestDate = String(datesResult.rows[0].std_dt);
-    const prevDate = String(datesResult.rows[1].std_dt);
 
     // 당일-1영업일 MAR, 전일-1영업일 MAR 각각 조회
     const [latestMar, prevMar] = await Promise.all([
@@ -1156,11 +1244,11 @@ export async function fetchProductDailyPnl(): Promise<{
       GROUP BY b1.obj_cd, s.curr
     `;
 
-    // 최근일 쿠폰 유출입 (excpnp)
+    // 해당일 쿠폰 유출입 (prevDate < pay_dt <= latestDate 범위)
     const couponResult = await sql`
       SELECT obj_cd, SUM(amt) AS coupon_amt
       FROM excpnp
-      WHERE pay_dt = ${latestDate}
+      WHERE pay_dt > ${prevDate} AND pay_dt <= ${latestDate}
       GROUP BY obj_cd
     `;
 
@@ -1223,31 +1311,49 @@ export async function fetchProductDailyPnl(): Promise<{
 }
 
 /**
- * 통화 × 유형(type1)별 Daily PnL 요약
+ * 통화 × 유형(struct_type: type1/type2/type3)별 Daily PnL 요약
+ * targetDate를 지정하면 해당일 기준, 미지정시 최신일 기준
+ * \를 ₩로 치환하여 반환
  */
-export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
+export async function fetchPnlSummaryByType(targetDate?: string): Promise<PnlSummaryByType[]> {
   noStore();
 
   try {
-    const datesResult = await sql`
-      SELECT DISTINCT std_dt FROM breakdownprc
-      ORDER BY std_dt DESC LIMIT 2
-    `;
-    if (datesResult.rows.length < 2) return [];
-    const latestDate = String(datesResult.rows[0].std_dt);
-    const prevDate = String(datesResult.rows[1].std_dt);
+    let latestDate: string;
+    let prevDate: string;
 
-    // 당일-1영업일 MAR, 전일-1영업일 MAR 각각 조회
+    if (targetDate) {
+      const datesResult = await sql`
+        SELECT DISTINCT std_dt FROM breakdownprc
+        WHERE std_dt <= ${targetDate}
+        ORDER BY std_dt DESC LIMIT 2
+      `;
+      if (datesResult.rows.length < 2) return [];
+      latestDate = String(datesResult.rows[0].std_dt);
+      prevDate = String(datesResult.rows[1].std_dt);
+    } else {
+      const datesResult = await sql`
+        SELECT DISTINCT std_dt FROM breakdownprc
+        ORDER BY std_dt DESC LIMIT 2
+      `;
+      if (datesResult.rows.length < 2) return [];
+      latestDate = String(datesResult.rows[0].std_dt);
+      prevDate = String(datesResult.rows[1].std_dt);
+    }
+
     const [latestMar, prevMar] = await Promise.all([
       getMarRateBeforeDate(latestDate),
       getMarRateBeforeDate(prevDate),
     ]);
 
-    // 당일/전일 MTM을 별도 컬럼으로 가져옴 (dual MAR 적용 위해)
     const result = await sql`
       SELECT
         s.curr,
         COALESCE(NULLIF(s.type1, ''), '기타') AS type1,
+        COALESCE(
+          CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')),
+          '기타'
+        ) AS struct_type,
         COUNT(DISTINCT b1.obj_cd) AS count,
         SUM(b1.avg_prc) AS today_mtm,
         SUM(b2.avg_prc) AS prev_mtm,
@@ -1260,16 +1366,43 @@ export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
       JOIN strucprdp s ON s.obj_cd = b1.obj_cd
       LEFT JOIN (
         SELECT obj_cd, SUM(amt) AS coupon_amt
-        FROM excpnp WHERE pay_dt = ${latestDate}
+        FROM excpnp WHERE pay_dt > ${prevDate} AND pay_dt <= ${latestDate}
         GROUP BY obj_cd
       ) e ON e.obj_cd = b1.obj_cd
       WHERE b1.std_dt = ${latestDate}
         AND b2.std_dt = ${prevDate}
         AND s.fnd_cd = '10206020'
         AND s.tp != '자체발행'
-      GROUP BY s.curr, COALESCE(NULLIF(s.type1, ''), '기타')
+      GROUP BY s.curr, type1, struct_type
       ORDER BY s.curr, ABS(SUM(b1.avg_prc) - SUM(b2.avg_prc)) DESC
     `;
+
+    // 자산 종목 수 + 액면 합계를 struct_type별로 별도 조회
+    const assetResult = await sql`
+      SELECT
+        s.curr,
+        COALESCE(
+          CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')),
+          '기타'
+        ) AS struct_type,
+        COUNT(DISTINCT s.obj_cd) AS asset_count,
+        SUM(s.notn) AS total_notional
+      FROM strucprdp s
+      WHERE s.fnd_cd = '10206020'
+        AND s.tp = '자산'
+        AND s.call_yn = 'N'
+      GROUP BY s.curr, struct_type
+    `;
+
+    // struct_type → { asset_count, total_notional } 맵 구축
+    const assetMap: Record<string, { asset_count: number; total_notional: number }> = {};
+    for (const r of assetResult.rows) {
+      const key = `${String(r.curr)}::${String(r.struct_type).replace(/\\/g, '₩')}`;
+      assetMap[key] = {
+        asset_count: Number(r.asset_count),
+        total_notional: Number(r.total_notional),
+      };
+    }
 
     return result.rows.map((r) => {
       const curr = String(r.curr);
@@ -1277,7 +1410,6 @@ export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
       let prevMtm = Number(r.prev_mtm);
       let totalCoupon = Number(r.total_coupon);
 
-      // USD: 각 날짜별 MAR로 나눈 뒤 차이 = (당일/당일-1MAR) - (전일/전일-1MAR)
       if (curr === 'USD' && latestMar > 0 && prevMar > 0) {
         todayMtm = todayMtm / latestMar;
         prevMtm = prevMtm / prevMar;
@@ -1286,16 +1418,20 @@ export async function fetchPnlSummaryByType(): Promise<PnlSummaryByType[]> {
 
       const totalDailyPnl = todayMtm - prevMtm;
       const totalPnl = totalDailyPnl + totalCoupon;
-
-      // KRW 환산: USD 종목은 달러 PnL × latestMar
       const krwMul = (curr === 'USD' && latestMar > 0) ? latestMar : 1;
       const totalDailyPnlKrw = totalDailyPnl * krwMul;
       const totalCouponKrw = totalCoupon * krwMul;
 
+      const structType = String(r.struct_type).replace(/\\/g, '₩');
+      const assetInfo = assetMap[`${curr}::${structType}`] || { asset_count: 0, total_notional: 0 };
+
       return {
         curr,
-        type1: String(r.type1),
+        type1: String(r.type1).replace(/\\/g, '₩'),
+        struct_type: structType,
         count: Number(r.count),
+        asset_count: assetInfo.asset_count,
+        total_notional: assetInfo.total_notional,
         total_daily_pnl: totalDailyPnl,
         total_coupon: totalCoupon,
         total_pnl: totalPnl,
@@ -1335,6 +1471,10 @@ export async function fetchPnlSummaryByTypeAllFunds(): Promise<PnlSummaryByType[
       SELECT
         s.curr,
         COALESCE(NULLIF(s.type1, ''), '기타') AS type1,
+        COALESCE(
+          CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')),
+          '기타'
+        ) AS struct_type,
         COUNT(DISTINCT b1.obj_cd) AS count,
         SUM(b1.avg_prc) AS today_mtm,
         SUM(b2.avg_prc) AS prev_mtm,
@@ -1347,15 +1487,39 @@ export async function fetchPnlSummaryByTypeAllFunds(): Promise<PnlSummaryByType[
       JOIN strucprdp s ON s.obj_cd = b1.obj_cd
       LEFT JOIN (
         SELECT obj_cd, SUM(amt) AS coupon_amt
-        FROM excpnp WHERE pay_dt = ${latestDate}
+        FROM excpnp WHERE pay_dt > ${prevDate} AND pay_dt <= ${latestDate}
         GROUP BY obj_cd
       ) e ON e.obj_cd = b1.obj_cd
       WHERE b1.std_dt = ${latestDate}
         AND b2.std_dt = ${prevDate}
         AND s.tp != '자체발행'
-      GROUP BY s.curr, COALESCE(NULLIF(s.type1, ''), '기타')
+      GROUP BY s.curr, type1, struct_type
       ORDER BY s.curr, ABS(SUM(b1.avg_prc) - SUM(b2.avg_prc)) DESC
     `;
+
+    // 자산 종목 수 + 액면 합계 (펀드 필터 없음)
+    const assetResult = await sql`
+      SELECT
+        s.curr,
+        COALESCE(
+          CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')),
+          '기타'
+        ) AS struct_type,
+        COUNT(DISTINCT s.obj_cd) AS asset_count,
+        SUM(s.notn) AS total_notional
+      FROM strucprdp s
+      WHERE s.tp = '자산'
+        AND s.call_yn = 'N'
+      GROUP BY s.curr, struct_type
+    `;
+    const assetMap: Record<string, { asset_count: number; total_notional: number }> = {};
+    for (const r of assetResult.rows) {
+      const key = `${String(r.curr)}::${String(r.struct_type).replace(/\\/g, '₩')}`;
+      assetMap[key] = {
+        asset_count: Number(r.asset_count),
+        total_notional: Number(r.total_notional),
+      };
+    }
 
     return result.rows.map((r) => {
       const curr = String(r.curr);
@@ -1375,10 +1539,16 @@ export async function fetchPnlSummaryByTypeAllFunds(): Promise<PnlSummaryByType[
       const totalDailyPnlKrw = totalDailyPnl * krwMul;
       const totalCouponKrw = totalCoupon * krwMul;
 
+      const structType = String(r.struct_type).replace(/\\/g, '₩');
+      const assetInfo = assetMap[`${curr}::${structType}`] || { asset_count: 0, total_notional: 0 };
+
       return {
         curr,
-        type1: String(r.type1),
+        type1: String(r.type1).replace(/\\/g, '₩'),
+        struct_type: structType,
         count: Number(r.count),
+        asset_count: assetInfo.asset_count,
+        total_notional: assetInfo.total_notional,
         total_daily_pnl: totalDailyPnl,
         total_coupon: totalCoupon,
         total_pnl: totalPnl,
@@ -1398,8 +1568,12 @@ export async function fetchPnlSummaryByTypeAllFunds(): Promise<PnlSummaryByType[
  * 단일 쿼리로 모든 연속 날짜 쌍의 PnL을 한번에 계산 (성능 최적화)
  */
 export async function fetchPnlTrend(): Promise<{
-  trend: { date: string; daily: number; cumulative: number }[];
+  trend: { date: string; daily: number; cumulative: number; byType: Record<string, number>; byStructType: Record<string, number> }[];
+  carryTrend: { date: string; daily: number; cumulative: number; byStructType: Record<string, number> }[];
   latestDate: string;
+  allTypes: string[];
+  allStructTypes: string[];
+  allCarryStructTypes: string[];
 }> {
   noStore();
 
@@ -1409,7 +1583,7 @@ export async function fetchPnlTrend(): Promise<{
       SELECT DISTINCT std_dt FROM breakdownprc ORDER BY std_dt ASC
     `;
     const allDates = datesResult.rows.map((r) => String(r.std_dt));
-    if (allDates.length < 2) return { trend: [], latestDate: '' };
+    if (allDates.length < 2) return { trend: [], carryTrend: [], latestDate: '', allTypes: [], allStructTypes: [], allCarryStructTypes: [] };
 
     // 모든 MAR 데이터 조회
     const marResult = await sql`
@@ -1431,27 +1605,33 @@ export async function fetchPnlTrend(): Promise<{
       return bestVal;
     }
 
-    // 종목별 날짜×MTM을 한번에 가져와서 JS에서 매칭 (N+1 쿼리 회피)
+    // 종목별 날짜×MTM + struct_type을 한번에 가져옴 (N+1 쿼리 회피)
     const allMtmResult = await sql`
       SELECT
         b.obj_cd,
         b.std_dt,
         s.curr,
+        s.tp,
+        COALESCE(NULLIF(s.type1, ''), '기타') AS type1,
+        CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) AS struct_type,
         SUM(b.avg_prc) AS mtm
       FROM breakdownprc b
       JOIN strucprdp s ON s.obj_cd = b.obj_cd
       WHERE s.tp != '자체발행'
-      GROUP BY b.obj_cd, b.std_dt, s.curr
+      GROUP BY b.obj_cd, b.std_dt, s.curr, s.tp, s.type1, s.type2, s.type3
     `;
 
-    // obj_cd → { dt → mtm }
-    const objMap: Record<string, { curr: string; byDate: Record<string, number> }> = {};
+    // obj_cd → { curr, tp, type1, structType, byDate: { dt → mtm } }
+    const objMap: Record<string, { curr: string; tp: string; type1: string; structType: string; byDate: Record<string, number> }> = {};
     for (const r of allMtmResult.rows) {
       const objCd = String(r.obj_cd);
       const dt = String(r.std_dt);
       const curr = String(r.curr);
+      const tp = String(r.tp);
+      const type1 = String(r.type1).replace(/\\/g, '₩');
+      const structType = (String(r.struct_type) || type1).replace(/\\/g, '₩');
       const mtm = Number(r.mtm);
-      if (!objMap[objCd]) objMap[objCd] = { curr, byDate: {} };
+      if (!objMap[objCd]) objMap[objCd] = { curr, tp, type1, structType, byDate: {} };
       objMap[objCd].byDate[dt] = mtm;
     }
 
@@ -1475,9 +1655,46 @@ export async function fetchPnlTrend(): Promise<{
       couponMap[dt][curr] = Number(r.coupon);
     }
 
+    // type1별 쿠폰 조회 (pay_dt × type1별)
+    const couponByTypeResult = await sql`
+      SELECT
+        e.pay_dt,
+        COALESCE(NULLIF(s.type1, ''), '기타') AS type1,
+        CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) AS struct_type,
+        s.curr,
+        SUM(e.amt) AS coupon
+      FROM excpnp e
+      JOIN strucprdp s ON s.obj_cd = e.obj_cd
+      WHERE s.tp != '자체발행'
+      GROUP BY e.pay_dt, s.type1, s.type2, s.type3, s.curr
+    `;
+    const couponByTypeMap: Record<string, Record<string, Record<string, number>>> = {};
+    // struct_type별 쿠폰 맵도 병렬 구축
+    const couponByStructTypeMap: Record<string, Record<string, Record<string, number>>> = {};
+    for (const r of couponByTypeResult.rows) {
+      const dt = String(r.pay_dt);
+      const type1 = String(r.type1).replace(/\\/g, '₩');
+      const structType = (String(r.struct_type) || type1).replace(/\\/g, '₩');
+      const curr = String(r.curr);
+      const coupon = Number(r.coupon);
+      // type1별
+      if (!couponByTypeMap[dt]) couponByTypeMap[dt] = {};
+      if (!couponByTypeMap[dt][type1]) couponByTypeMap[dt][type1] = {};
+      couponByTypeMap[dt][type1][curr] = (couponByTypeMap[dt][type1][curr] || 0) + coupon;
+      // struct_type별
+      if (!couponByStructTypeMap[dt]) couponByStructTypeMap[dt] = {};
+      if (!couponByStructTypeMap[dt][structType]) couponByStructTypeMap[dt][structType] = {};
+      couponByStructTypeMap[dt][structType][curr] = (couponByStructTypeMap[dt][structType][curr] || 0) + coupon;
+    }
+
     // 일별 PnL 계산 (연속 날짜 쌍에서 양쪽 모두 존재하는 종목만 비교)
-    const trend: { date: string; daily: number; cumulative: number }[] = [];
+    const allTypesSet = new Set<string>();
+    const allStructTypesSet = new Set<string>();
+    const allCarryStructTypesSet = new Set<string>();
+    const trend: { date: string; daily: number; cumulative: number; byType: Record<string, number>; byStructType: Record<string, number> }[] = [];
+    const carryTrend: { date: string; daily: number; cumulative: number; byStructType: Record<string, number> }[] = [];
     let cumulative = 0;
+    let carryCumulative = 0;
 
     for (let i = 1; i < allDates.length; i++) {
       const prevDt = allDates[i - 1];
@@ -1485,47 +1702,78 @@ export async function fetchPnlTrend(): Promise<{
       const currMar = getMarBefore(currDt);
       const prevMarVal = getMarBefore(prevDt);
 
-      // 통화별 MTM 변동 집계 (양쪽 날짜 모두 있는 종목만)
-      const mtmDiff: Record<string, number> = {};
+      // type1별 / struct_type별 PnL 집계
+      const typePnlKrw: Record<string, number> = {};
+      const structTypePnlKrw: Record<string, number> = {};
+      // 캐리 전용 struct_type별 PnL
+      const carryStructTypePnlKrw: Record<string, number> = {};
+
       for (const [, entry] of Object.entries(objMap)) {
-        const todayMtm = entry.byDate[currDt];
-        const prevMtm = entry.byDate[prevDt];
-        if (todayMtm === undefined || prevMtm === undefined) continue;
+        const tMtm = entry.byDate[currDt];
+        const pMtm = entry.byDate[prevDt];
+        if (tMtm === undefined || pMtm === undefined) continue;
 
         const curr = entry.curr;
-        if (!mtmDiff[curr]) mtmDiff[curr] = 0;
-        mtmDiff[curr] += todayMtm - prevMtm;
-      }
+        const tp = entry.tp;
+        const type1 = entry.type1;
+        const structType = entry.structType;
+        allTypesSet.add(type1);
+        allStructTypesSet.add(structType);
 
-      let dailyPnlKrw = 0;
-      const currencies = new Set([
-        ...Object.keys(mtmDiff),
-        ...Object.keys(couponMap[currDt] || {}),
-      ]);
-
-      for (const curr of currencies) {
-        let diff = mtmDiff[curr] || 0;
-        let coupon = couponMap[currDt]?.[curr] || 0;
-
+        let pnlKrw: number;
         if (curr === 'USD' && currMar > 0 && prevMarVal > 0) {
-          // USD MTM 변동을 dual MAR로 계산하려면 종목별로 해야 하지만,
-          // 추이 차트에서는 총합 수준에서 근사: (today/currMar - prev/prevMar) ≈ diff처리
-          // 정확한 계산: 개별 종목의 (mtm_today/currMar - mtm_prev/prevMar)
-          let usdDiff = 0;
-          for (const [, entry] of Object.entries(objMap)) {
-            if (entry.curr !== 'USD') continue;
-            const tMtm = entry.byDate[currDt];
-            const pMtm = entry.byDate[prevDt];
-            if (tMtm === undefined || pMtm === undefined) continue;
-            usdDiff += (tMtm / currMar) - (pMtm / prevMarVal);
-          }
-          diff = usdDiff;
-          coupon = coupon / currMar;
+          // dual MAR: (mtm_today/currMar - mtm_prev/prevMar) × currMar → KRW
+          const usdPnl = (tMtm / currMar) - (pMtm / prevMarVal);
+          pnlKrw = usdPnl * currMar;
+        } else {
+          pnlKrw = tMtm - pMtm;
         }
 
-        const pnl = diff + coupon;
-        const krwMul = (curr === 'USD' && currMar > 0) ? currMar : 1;
-        dailyPnlKrw += pnl * krwMul;
+        typePnlKrw[type1] = (typePnlKrw[type1] || 0) + pnlKrw;
+        structTypePnlKrw[structType] = (structTypePnlKrw[structType] || 0) + pnlKrw;
+
+        // 캐리 TP 전용 집계
+        if (tp === '캐리') {
+          allCarryStructTypesSet.add(structType);
+          carryStructTypePnlKrw[structType] = (carryStructTypePnlKrw[structType] || 0) + pnlKrw;
+        }
+      }
+
+      // type1별 쿠폰 추가 (prevDt < pay_dt <= currDt 범위, 날짜 갭 누락 방지)
+      for (const [payDt, typeMap] of Object.entries(couponByTypeMap)) {
+        if (payDt > prevDt && payDt <= currDt) {
+          for (const [type1, currMap] of Object.entries(typeMap)) {
+            allTypesSet.add(type1);
+            for (const [, coupon] of Object.entries(currMap)) {
+              typePnlKrw[type1] = (typePnlKrw[type1] || 0) + coupon;
+            }
+          }
+        }
+      }
+
+      // struct_type별 쿠폰 추가 (prevDt < pay_dt <= currDt 범위)
+      for (const [payDt, stMap] of Object.entries(couponByStructTypeMap)) {
+        if (payDt > prevDt && payDt <= currDt) {
+          for (const [structType, currMap] of Object.entries(stMap)) {
+            allStructTypesSet.add(structType);
+            for (const [, coupon] of Object.entries(currMap)) {
+              structTypePnlKrw[structType] = (structTypePnlKrw[structType] || 0) + coupon;
+            }
+          }
+        }
+      }
+
+      // 일별 총 PnL
+      let dailyPnlKrw = 0;
+      const byType: Record<string, number> = {};
+      for (const [type1, pnl] of Object.entries(typePnlKrw)) {
+        const eok = pnl / 100000000;
+        byType[type1] = Math.round(eok * 100) / 100;
+        dailyPnlKrw += pnl;
+      }
+      const byStructType: Record<string, number> = {};
+      for (const [st, pnl] of Object.entries(structTypePnlKrw)) {
+        byStructType[st] = Math.round((pnl / 100000000) * 100) / 100;
       }
 
       cumulative += dailyPnlKrw;
@@ -1536,13 +1784,33 @@ export async function fetchPnlTrend(): Promise<{
         date: `${currDt.slice(4, 6)}/${currDt.slice(6, 8)}`,
         daily: Math.round(dailyEok * 100) / 100,
         cumulative: Math.round(cumulativeEok * 100) / 100,
+        byType,
+        byStructType,
+      });
+
+      // Carry 전용 trend
+      let carryDailyKrw = 0;
+      const carryByStructType: Record<string, number> = {};
+      for (const [st, pnl] of Object.entries(carryStructTypePnlKrw)) {
+        carryByStructType[st] = Math.round((pnl / 100000000) * 100) / 100;
+        carryDailyKrw += pnl;
+      }
+      carryCumulative += carryDailyKrw;
+      carryTrend.push({
+        date: `${currDt.slice(4, 6)}/${currDt.slice(6, 8)}`,
+        daily: Math.round((carryDailyKrw / 100000000) * 100) / 100,
+        cumulative: Math.round((carryCumulative / 100000000) * 100) / 100,
+        byStructType: carryByStructType,
       });
     }
 
-    return { trend, latestDate: allDates[allDates.length - 1] };
+    const allTypes = Array.from(allTypesSet).sort();
+    const allStructTypes = Array.from(allStructTypesSet).sort();
+    const allCarryStructTypes = Array.from(allCarryStructTypesSet).sort();
+    return { trend, carryTrend, latestDate: allDates[allDates.length - 1], allTypes, allStructTypes, allCarryStructTypes };
   } catch (error) {
     console.error('fetchPnlTrend Error:', error);
-    return { trend: [], latestDate: '' };
+    return { trend: [], carryTrend: [], latestDate: '', allTypes: [], allStructTypes: [], allCarryStructTypes: [] };
   }
 }
 
@@ -1560,7 +1828,7 @@ export async function fetchPnlSummaryCards(): Promise<{
   noStore();
 
   try {
-    const { trend, latestDate } = await fetchPnlTrend();
+    const { trend, carryTrend, latestDate } = await fetchPnlTrend();
     if (trend.length === 0) {
       return { dailyPnl: 0, mtdPnl: 0, ytdPnl: 0, carryPnl: 0, baseDate: '' };
     }
@@ -1581,33 +1849,10 @@ export async function fetchPnlSummaryCards(): Promise<{
       })
       .reduce((s, t) => s + t.daily, 0);
 
-    // Carry PnL: 최신일 쿠폰 합계 (억 단위)
-    const datesResult = await sql`
-      SELECT DISTINCT std_dt FROM breakdownprc ORDER BY std_dt DESC LIMIT 1
-    `;
-    const currDate = String(datesResult.rows[0]?.std_dt || '');
-    let carryPnl = 0;
-    if (currDate) {
-      const latestMar = await getMarRateBeforeDate(currDate);
-      const couponResult = await sql`
-        SELECT s.curr, SUM(e.amt) AS coupon
-        FROM excpnp e
-        JOIN strucprdp s ON s.obj_cd = e.obj_cd
-        WHERE e.pay_dt = ${currDate}
-          AND s.tp != '자체발행'
-        GROUP BY s.curr
-      `;
-      for (const r of couponResult.rows) {
-        const curr = String(r.curr);
-        let coupon = Number(r.coupon);
-        if (curr === 'USD' && latestMar > 0) {
-          // USD 쿠폰은 이미 원화 → MAR로 나누고 다시 곱하면 원본
-          // 실제로 excpnp의 amt는 통화 기준이므로 그대로 원화
-        }
-        carryPnl += coupon;
-      }
-      carryPnl = Math.round((carryPnl / 100000000) * 100) / 100;
-    }
+    // Carry PnL: tp='캐리' 상품의 최신일 PnL (억 단위)
+    const carryPnl = carryTrend.length > 0
+      ? carryTrend[carryTrend.length - 1].daily
+      : 0;
 
     const baseDate = latestDate
       ? `${latestDate.slice(0, 4)}-${latestDate.slice(4, 6)}-${latestDate.slice(6, 8)}`
@@ -1617,7 +1862,7 @@ export async function fetchPnlSummaryCards(): Promise<{
       dailyPnl: Math.round(dailyPnl * 100) / 100,
       mtdPnl: Math.round(mtdPnl * 100) / 100,
       ytdPnl: Math.round(ytdPnl * 100) / 100,
-      carryPnl,
+      carryPnl: Math.round(carryPnl * 100) / 100,
       baseDate,
     };
   } catch (error) {

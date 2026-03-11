@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { Metadata } from 'next';
 import Search from '@/app/ui/search';
 import CallFilter from '@/app/ui/strucprdm/call-filter';
+import DatePicker from '@/app/ui/strucprdm/date-picker';
 import SummaryCards from '@/app/ui/strucprdm/summary-cards';
 import DistributionCharts from '@/app/ui/strucprdm/distribution-charts';
 import ClickableStrucprdpTable from '@/app/ui/strucprdm/clickable-table';
@@ -20,6 +21,7 @@ import {
   fetchProductDailyPnl,
   fetchPnlSummaryByType,
   fetchUsdMarRates,
+  fetchAvailableDates,
 } from '@/app/lib/data';
 
 export const metadata: Metadata = {
@@ -32,24 +34,36 @@ export default async function StrucprdmPage({
   searchParams?: {
     query?: string;
     callFilter?: string;
+    pnlDate?: string;
   };
 }) {
   const query = searchParams?.query || '';
   const callFilter = searchParams?.callFilter || 'N';
+  const pnlDate = searchParams?.pnlDate || '';
+
+  // 가용 날짜 목록 (date picker용)
+  const availableDates = await fetchAvailableDates();
 
   return (
     <div className="w-full">
-      {/* 페이지 헤더 */}
+      {/* 페이지 헤더 + 날짜 선택기 */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">구조화 상품 현황</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          FICC 구조화 상품 포트폴리오 대시보드 — 상품 구조, 거래상대방, 유형별 분포를 한눈에 확인할 수 있습니다.
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">구조화 상품 현황</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              FICC 구조화 상품 포트폴리오 대시보드 — 상품 구조, 거래상대방, 유형별 분포를 한눈에 확인할 수 있습니다.
+            </p>
+          </div>
+          <div className="flex-shrink-0 pt-1">
+            <DatePicker availableDates={availableDates} />
+          </div>
+        </div>
       </div>
 
       {/* Daily PnL 요약 */}
-      <Suspense fallback={<div className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />}>
-        <PnlSummaryWrapper />
+      <Suspense key={'pnl-' + pnlDate} fallback={<div className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />}>
+        <PnlSummaryWrapper pnlDate={pnlDate} />
       </Suspense>
 
       {/* 요약 카드 */}
@@ -71,8 +85,8 @@ export default async function StrucprdmPage({
           <Search placeholder="상품코드, 거래상대방, 유형, 통화로 검색..." />
           <CallFilter />
         </div>
-        <Suspense key={query + callFilter} fallback={<TableSkeleton />}>
-          <StrucprdmTableWrapper query={query} callFilter={callFilter} />
+        <Suspense key={query + callFilter + pnlDate} fallback={<TableSkeleton />}>
+          <StrucprdmTableWrapper query={query} callFilter={callFilter} pnlDate={pnlDate} />
         </Suspense>
       </div>
     </div>
@@ -80,10 +94,11 @@ export default async function StrucprdmPage({
 }
 
 // PnL 요약 서버 컴포넌트 래퍼
-async function PnlSummaryWrapper() {
+async function PnlSummaryWrapper({ pnlDate }: { pnlDate: string }) {
+  const targetDate = pnlDate || undefined;
   const [pnlSummary, pnlData] = await Promise.all([
-    fetchPnlSummaryByType(),
-    fetchProductDailyPnl(),
+    fetchPnlSummaryByType(targetDate),
+    fetchProductDailyPnl(targetDate),
   ]);
   return <PnlSummaryCards summary={pnlSummary} latestDate={pnlData.latestDate} />;
 }
@@ -118,15 +133,18 @@ async function DistributionChartsWrapper() {
 async function StrucprdmTableWrapper({
   query,
   callFilter,
+  pnlDate,
 }: {
   query: string;
   callFilter: string;
+  pnlDate: string;
 }) {
+  const targetDate = pnlDate || undefined;
   const [summary, accintRates, products, pnlData, marRates] = await Promise.all([
     fetchStrucprdpSummary(),
     fetchLatestAccintRates(),
     fetchFilteredStrucprdp(query, 1, callFilter),
-    fetchProductDailyPnl(),
+    fetchProductDailyPnl(targetDate),
     fetchUsdMarRates(),
   ]);
   const usdKrwRate = summary?.usdKrwRate ?? 1450;

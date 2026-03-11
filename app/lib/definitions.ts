@@ -229,8 +229,11 @@ export type ProductDailyPnl = {
 // PnL 통화×유형별 요약
 export type PnlSummaryByType = {
   curr: string;
-  type1: string;
+  type1: string;         // type1 단독 (기존 호환)
+  struct_type: string;   // type1/type2/type3 조합 (기초자산/payoff유형)
   count: number;
+  asset_count: number;   // 자산(tp='자산') 종목 수만 집계
+  total_notional: number; // 액면 합계 (KRW: 원, USD: 달러)
   total_daily_pnl: number;     // USD는 달러 기준
   total_coupon: number;
   total_pnl: number;

@@ -3,6 +3,8 @@ import { lusitana } from '@/app/ui/fonts';
 import { Suspense } from 'react';
 import {
   PnlTrendChart,
+  WtdPnlChart,
+  CarryWtdPnlChart,
   TypePnlTable,
   RiskAttributionTable,
 } from '@/app/ui/pnl/pnl-chart';
@@ -62,7 +64,7 @@ function PnlSummaryCard({
 // 통합 서버 래퍼: 모든 데이터를 한 번에 가져와서 렌더링
 async function PnlDashboardContent() {
   const [
-    { trend, latestDate },
+    { trend, carryTrend, latestDate, allTypes, allStructTypes, allCarryStructTypes },
     summaryCards,
     typeSummary,
   ] = await Promise.all([
@@ -112,7 +114,7 @@ async function PnlDashboardContent() {
         <PnlSummaryCard
           title="Carry PnL"
           value={summaryCards.carryPnl}
-          subtitle="일 쿠폰 수익"
+          subtitle="캐리 TP 일별 손익"
           icon={ChartBarIcon}
           color="bg-amber-500"
         />
@@ -126,17 +128,29 @@ async function PnlDashboardContent() {
             (일별 PnL + 누적, 억 단위)
           </span>
         </h2>
-        <PnlTrendChart data={trend} />
-        <div className="mt-2 flex items-center justify-center gap-6 text-xs text-gray-400 dark:text-gray-500">
-          <div className="flex items-center gap-1.5">
-            <div className="h-3 w-3 rounded-sm bg-blue-400" />
-            <span>Daily PnL</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="h-0.5 w-4 bg-amber-500" />
-            <span>누적 PnL</span>
-          </div>
-        </div>
+        <PnlTrendChart data={trend} allTypes={allTypes} />
+      </div>
+
+      {/* WTD PnL 추이 차트 */}
+      <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+        <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
+          WTD PnL 추이
+          <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+            (최근 5영업일, 구조유형 세분화, 억 단위)
+          </span>
+        </h2>
+        <WtdPnlChart data={trend} allStructTypes={allStructTypes} />
+      </div>
+
+      {/* Carry WTD PnL 추이 차트 */}
+      <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+        <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
+          Carry WTD PnL 추이
+          <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+            (캐리 TP 기준, 최근 5영업일, 구조유형별, 억 단위)
+          </span>
+        </h2>
+        <CarryWtdPnlChart data={carryTrend} allCarryStructTypes={allCarryStructTypes} />
       </div>
 
       {/* 테이블 2개 가로 배치 */}

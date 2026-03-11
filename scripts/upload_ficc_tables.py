@@ -355,6 +355,44 @@ def main():
     finally:
         conn.close()
 
+    # call_yn 자동 감지: 발행일 이후 MTM=0이면 call_yn='Y'로 업데이트
+    print(f"\n--- call_yn 자동 감지 ---")
+    conn2 = psycopg2.connect(DB_URL)
+    try:
+        cur = conn2.cursor()
+        cur.execute("""
+            WITH zero_mtm AS (
+                SELECT s.obj_cd, s.eff_dt, b.std_dt, SUM(b.avg_prc) AS total_mtm
+                FROM strucprdp s
+                JOIN breakdownprc b ON b.obj_cd = s.obj_cd
+                WHERE s.call_yn = 'N' AND b.std_dt > s.eff_dt
+                GROUP BY s.obj_cd, s.eff_dt, b.std_dt
+                HAVING ABS(SUM(b.avg_prc)) < 0.01
+            ),
+            first_zero AS (
+                SELECT obj_cd, MIN(std_dt) AS call_dt
+                FROM zero_mtm GROUP BY obj_cd
+            )
+            SELECT obj_cd, call_dt FROM first_zero ORDER BY obj_cd
+        """)
+        call_targets = cur.fetchall()
+        if call_targets:
+            for obj_cd, call_dt in call_targets:
+                cur.execute(
+                    "UPDATE strucprdp SET call_yn = 'Y', call_dt = %s, updated_at = NOW() WHERE obj_cd = %s AND call_yn = 'N'",
+                    (call_dt, obj_cd)
+                )
+                print(f"  {obj_cd}: call_yn → Y (call_dt={call_dt})")
+            conn2.commit()
+            print(f"  → {len(call_targets)}건 업데이트")
+        else:
+            print("  → 감지된 신규 Call 종목 없음")
+    except Exception as e:
+        conn2.rollback()
+        print(f"  call_yn 감지 오류: {e}")
+    finally:
+        conn2.close()
+
     print(f"\n{'=' * 60}")
     print(f"완료: 총 {total}건 처리")
     print(f"{'=' * 60}")

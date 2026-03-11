@@ -160,9 +160,9 @@ export default function DistributionCharts({
 }) {
   const { usdKrwRate } = summary;
 
-  // 차트 데이터 변환
+  // 차트 데이터 변환 (\를 ₩로 치환)
   const typeItems = summary.typeDistribution.map((d) => ({
-    label: d.struct_type,
+    label: d.struct_type.replace(/\\/g, '₩'),
     curr: d.curr,
     notional: d.notional,
   }));
