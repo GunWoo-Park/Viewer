@@ -9,10 +9,12 @@ import {
   RiskAttributionTable,
 } from '@/app/ui/pnl/pnl-chart';
 import {
-  fetchPnlSummaryCards,
+  computePnlSummaryCards,
   fetchPnlTrend,
   fetchPnlSummaryByTypeAllFunds,
+  fetchAvailableDates,
 } from '@/app/lib/data';
+import DatePicker from '@/app/ui/strucprdm/date-picker';
 import {
   ArrowTrendingUpIcon,
   CalendarDaysIcon,
@@ -62,16 +64,45 @@ function PnlSummaryCard({
 }
 
 // 통합 서버 래퍼: 모든 데이터를 한 번에 가져와서 렌더링
-async function PnlDashboardContent() {
+async function PnlDashboardContent({ pnlDate }: { pnlDate?: string }) {
   const [
     { trend, carryTrend, latestDate, allTypes, allStructTypes, allCarryStructTypes },
-    summaryCards,
     typeSummary,
+    availableDates,
   ] = await Promise.all([
     fetchPnlTrend(),
-    fetchPnlSummaryCards(),
-    fetchPnlSummaryByTypeAllFunds(),
+    fetchPnlSummaryByTypeAllFunds(pnlDate),
+    fetchAvailableDates(),
   ]);
+
+  // 선택된 날짜의 MM/DD 변환 (trend.date 포맷과 맞춤)
+  const effectiveDate = pnlDate || latestDate;
+  const targetMMDD = effectiveDate
+    ? `${effectiveDate.slice(4, 6)}/${effectiveDate.slice(6, 8)}`
+    : '';
+
+  // 선택 날짜까지 trend 슬라이스
+  let slicedTrend = trend;
+  let slicedCarryTrend = carryTrend;
+  if (targetMMDD) {
+    const idx = trend.findIndex((t) => t.date === targetMMDD);
+    if (idx >= 0) {
+      slicedTrend = trend.slice(0, idx + 1);
+      slicedCarryTrend = carryTrend.slice(0, idx + 1);
+    }
+  }
+
+  // 요약 카드 계산 (fetchPnlTrend 중복 호출 제거)
+  const summaryCards = computePnlSummaryCards(slicedTrend, slicedCarryTrend);
+
+  const baseDate = effectiveDate
+    ? `${effectiveDate.slice(0, 4)}-${effectiveDate.slice(4, 6)}-${effectiveDate.slice(6, 8)}`
+    : '';
+
+  // 전일 날짜 구하기 (slicedTrend 끝에서 2번째 → prevDate)
+  const prevDateLabel = slicedTrend.length >= 2
+    ? slicedTrend[slicedTrend.length - 2].date
+    : '';
 
   return (
     <>
@@ -80,12 +111,25 @@ async function PnlDashboardContent() {
         <h1 className={`${lusitana.className} text-xl md:text-2xl dark:text-gray-100`}>
           손익 (PnL)
         </h1>
-        <div className="flex items-center gap-2 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1.5">
-          <CalendarDaysIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-          <span className="text-sm font-mono text-gray-600 dark:text-gray-300">
-            {summaryCards.baseDate}
+        <DatePicker availableDates={availableDates} />
+      </div>
+
+      {/* 기준일 / 전일 표시 */}
+      <div className="mb-4 flex items-center gap-3">
+        <div className="flex items-center gap-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1">
+          <span className="text-xs text-gray-500 dark:text-gray-400">기준일</span>
+          <span className="text-sm font-mono font-semibold text-gray-700 dark:text-gray-200">
+            {baseDate}
           </span>
         </div>
+        {prevDateLabel && (
+          <div className="flex items-center gap-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400">전일</span>
+            <span className="text-sm font-mono text-gray-600 dark:text-gray-300">
+              {prevDateLabel}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* PnL 요약 카드 */}
@@ -100,7 +144,7 @@ async function PnlDashboardContent() {
         <PnlSummaryCard
           title="MTD PnL"
           value={summaryCards.mtdPnl}
-          subtitle={`${summaryCards.baseDate.slice(5, 7)}월 누적`}
+          subtitle={`${baseDate.slice(5, 7)}월 누적`}
           icon={ChartBarIcon}
           color="bg-emerald-500"
         />
@@ -128,7 +172,7 @@ async function PnlDashboardContent() {
             (일별 PnL + 누적, 억 단위)
           </span>
         </h2>
-        <PnlTrendChart data={trend} allTypes={allTypes} />
+        <PnlTrendChart data={slicedTrend} allTypes={allTypes} />
       </div>
 
       {/* WTD PnL 추이 차트 */}
@@ -139,7 +183,7 @@ async function PnlDashboardContent() {
             (최근 5영업일, 구조유형 세분화, 억 단위)
           </span>
         </h2>
-        <WtdPnlChart data={trend} allStructTypes={allStructTypes} />
+        <WtdPnlChart data={slicedTrend} allStructTypes={allStructTypes} />
       </div>
 
       {/* Carry WTD PnL 추이 차트 */}
@@ -150,7 +194,7 @@ async function PnlDashboardContent() {
             (캐리 TP 기준, 최근 5영업일, 구조유형별, 억 단위)
           </span>
         </h2>
-        <CarryWtdPnlChart data={carryTrend} allCarryStructTypes={allCarryStructTypes} />
+        <CarryWtdPnlChart data={slicedCarryTrend} allCarryStructTypes={allCarryStructTypes} />
       </div>
 
       {/* 테이블 2개 가로 배치 */}
@@ -181,10 +225,17 @@ async function PnlDashboardContent() {
   );
 }
 
-export default function PnLPage() {
+export default function PnLPage({
+  searchParams,
+}: {
+  searchParams?: { pnlDate?: string };
+}) {
+  const pnlDate = searchParams?.pnlDate || '';
+
   return (
     <main>
       <Suspense
+        key={pnlDate}
         fallback={
           <div className="space-y-6">
             <div className="h-8 w-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
@@ -201,7 +252,7 @@ export default function PnLPage() {
           </div>
         }
       >
-        <PnlDashboardContent />
+        <PnlDashboardContent pnlDate={pnlDate || undefined} />
       </Suspense>
     </main>
   );

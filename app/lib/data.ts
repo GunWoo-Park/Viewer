@@ -1450,17 +1450,32 @@ export async function fetchPnlSummaryByType(targetDate?: string): Promise<PnlSum
  * 모든 펀드 대상 유형(type1)별 Daily PnL 요약
  * 펀드 필터 없이 전체 구조화 상품의 PnL을 유형별로 집계
  */
-export async function fetchPnlSummaryByTypeAllFunds(): Promise<PnlSummaryByType[]> {
+export async function fetchPnlSummaryByTypeAllFunds(targetDate?: string): Promise<PnlSummaryByType[]> {
   noStore();
 
   try {
-    const datesResult = await sql`
-      SELECT DISTINCT std_dt FROM breakdownprc
-      ORDER BY std_dt DESC LIMIT 2
-    `;
-    if (datesResult.rows.length < 2) return [];
-    const latestDate = String(datesResult.rows[0].std_dt);
-    const prevDate = String(datesResult.rows[1].std_dt);
+    let latestDate: string;
+    let prevDate: string;
+
+    if (targetDate) {
+      // 지정 날짜와 그 직전 영업일
+      latestDate = targetDate;
+      const prevResult = await sql`
+        SELECT DISTINCT std_dt FROM breakdownprc
+        WHERE std_dt < ${targetDate}
+        ORDER BY std_dt DESC LIMIT 1
+      `;
+      if (prevResult.rows.length === 0) return [];
+      prevDate = String(prevResult.rows[0].std_dt);
+    } else {
+      const datesResult = await sql`
+        SELECT DISTINCT std_dt FROM breakdownprc
+        ORDER BY std_dt DESC LIMIT 2
+      `;
+      if (datesResult.rows.length < 2) return [];
+      latestDate = String(datesResult.rows[0].std_dt);
+      prevDate = String(datesResult.rows[1].std_dt);
+    }
 
     const [latestMar, prevMar] = await Promise.all([
       getMarRateBeforeDate(latestDate),
@@ -1816,57 +1831,56 @@ export async function fetchPnlTrend(): Promise<{
 
 /**
  * PnL 요약 카드 데이터 (Daily/MTD/YTD/Carry)
- * breakdownprc 기반 실제 계산
+ * fetchPnlTrend 결과를 받아서 계산 (중복 호출 방지)
+ * targetDate: 선택된 날짜의 MM/DD 포맷 (trend.date와 동일)
  */
-export async function fetchPnlSummaryCards(): Promise<{
+export function computePnlSummaryCards(
+  trend: { date: string; daily: number; cumulative: number }[],
+  carryTrend: { date: string; daily: number; cumulative: number }[],
+  targetDateMMDD?: string,
+): {
   dailyPnl: number;
   mtdPnl: number;
   ytdPnl: number;
   carryPnl: number;
-  baseDate: string;
-}> {
-  noStore();
-
-  try {
-    const { trend, carryTrend, latestDate } = await fetchPnlTrend();
-    if (trend.length === 0) {
-      return { dailyPnl: 0, mtdPnl: 0, ytdPnl: 0, carryPnl: 0, baseDate: '' };
-    }
-
-    // Daily: 마지막 날짜 PnL (억)
-    const dailyPnl = trend[trend.length - 1].daily;
-
-    // YTD: 누적 합계 (억)
-    const ytdPnl = trend[trend.length - 1].cumulative;
-
-    // MTD: 이번 달 PnL 합계 (억)
-    const latestMonth = latestDate.slice(0, 6);
-    const mtdPnl = trend
-      .filter((t) => {
-        // date format: MM/DD → 월 추출
-        const mm = t.date.slice(0, 2);
-        return latestMonth.endsWith(mm);
-      })
-      .reduce((s, t) => s + t.daily, 0);
-
-    // Carry PnL: tp='캐리' 상품의 최신일 PnL (억 단위)
-    const carryPnl = carryTrend.length > 0
-      ? carryTrend[carryTrend.length - 1].daily
-      : 0;
-
-    const baseDate = latestDate
-      ? `${latestDate.slice(0, 4)}-${latestDate.slice(4, 6)}-${latestDate.slice(6, 8)}`
-      : '';
-
-    return {
-      dailyPnl: Math.round(dailyPnl * 100) / 100,
-      mtdPnl: Math.round(mtdPnl * 100) / 100,
-      ytdPnl: Math.round(ytdPnl * 100) / 100,
-      carryPnl: Math.round(carryPnl * 100) / 100,
-      baseDate,
-    };
-  } catch (error) {
-    console.error('fetchPnlSummaryCards Error:', error);
-    return { dailyPnl: 0, mtdPnl: 0, ytdPnl: 0, carryPnl: 0, baseDate: '' };
+} {
+  if (trend.length === 0) {
+    return { dailyPnl: 0, mtdPnl: 0, ytdPnl: 0, carryPnl: 0 };
   }
+
+  // targetDate까지 슬라이스
+  let slicedTrend = trend;
+  let slicedCarry = carryTrend;
+  if (targetDateMMDD) {
+    const idx = trend.findIndex((t) => t.date === targetDateMMDD);
+    if (idx >= 0) {
+      slicedTrend = trend.slice(0, idx + 1);
+      slicedCarry = carryTrend.slice(0, idx + 1);
+    }
+  }
+
+  // Daily: 선택 날짜의 PnL (억)
+  const dailyPnl = slicedTrend[slicedTrend.length - 1].daily;
+
+  // YTD: 누적 합계 (억)
+  const ytdPnl = slicedTrend[slicedTrend.length - 1].cumulative;
+
+  // MTD: 해당 월의 PnL 합계 (억)
+  const lastDate = slicedTrend[slicedTrend.length - 1].date; // MM/DD
+  const targetMonth = lastDate.slice(0, 2);
+  const mtdPnl = slicedTrend
+    .filter((t) => t.date.slice(0, 2) === targetMonth)
+    .reduce((s, t) => s + t.daily, 0);
+
+  // Carry PnL: tp='캐리' 상품의 해당일 PnL (억 단위)
+  const carryPnl = slicedCarry.length > 0
+    ? slicedCarry[slicedCarry.length - 1].daily
+    : 0;
+
+  return {
+    dailyPnl: Math.round(dailyPnl * 100) / 100,
+    mtdPnl: Math.round(mtdPnl * 100) / 100,
+    ytdPnl: Math.round(ytdPnl * 100) / 100,
+    carryPnl: Math.round(carryPnl * 100) / 100,
+  };
 }
