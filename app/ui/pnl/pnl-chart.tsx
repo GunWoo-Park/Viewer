@@ -587,12 +587,28 @@ export function CarryWtdPnlChart({
   if (!yTicks.some((t) => Math.abs(t) < niceStep * 0.01)) yTicks.push(0);
   yTicks.sort((a, b) => a - b);
 
-  // 캐리 전용 색상 (오렌지~앰버 계열 팔레트)
+  // 캐리 전용 색상 (고대비, 확실히 구분 가능한 팔레트)
   const CARRY_PALETTE = [
-    '#f59e0b', '#ea580c', '#d97706', '#c2410c', '#b45309',
-    '#92400e', '#78350f', '#f97316', '#fb923c', '#fbbf24',
-    '#fdba74', '#fcd34d', '#ca8a04', '#a16207', '#854d0e',
-    '#65a30d', '#4d7c0f', '#15803d', '#047857', '#0d9488',
+    '#e11d48', // rose-600
+    '#2563eb', // blue-600
+    '#16a34a', // green-600
+    '#f59e0b', // amber-500
+    '#7c3aed', // violet-600
+    '#ea580c', // orange-600
+    '#0891b2', // cyan-600
+    '#c026d3', // fuchsia-600
+    '#65a30d', // lime-600
+    '#dc2626', // red-600
+    '#4f46e5', // indigo-600
+    '#0d9488', // teal-600
+    '#d97706', // amber-600
+    '#9333ea', // purple-600
+    '#059669', // emerald-600
+    '#be185d', // pink-700
+    '#1d4ed8', // blue-700
+    '#b91c1c', // red-700
+    '#15803d', // green-700
+    '#7e22ce', // purple-700
   ];
   const stColorMap: Record<string, string> = {};
   for (let i = 0; i < allCarryStructTypes.length; i++) {

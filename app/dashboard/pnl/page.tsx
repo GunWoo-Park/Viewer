@@ -114,7 +114,7 @@ async function PnlDashboardContent() {
         <PnlSummaryCard
           title="Carry PnL"
           value={summaryCards.carryPnl}
-          subtitle="캐리 TP 일별 손익"
+          subtitle="Carry swap 일별 손익"
           icon={ChartBarIcon}
           color="bg-amber-500"
         />
@@ -145,7 +145,7 @@ async function PnlDashboardContent() {
       {/* Carry WTD PnL 추이 차트 */}
       <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
         <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
-          Carry WTD PnL 추이
+          Carry swap WTD PnL 추이
           <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
             (캐리 TP 기준, 최근 5영업일, 구조유형별, 억 단위)
           </span>
