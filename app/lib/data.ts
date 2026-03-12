@@ -1583,9 +1583,10 @@ export async function fetchPnlSummaryByTypeAllFunds(targetDate?: string): Promis
  * 단일 쿼리로 모든 연속 날짜 쌍의 PnL을 한번에 계산 (성능 최적화)
  */
 export async function fetchPnlTrend(): Promise<{
-  trend: { date: string; daily: number; cumulative: number; byType: Record<string, number>; byStructType: Record<string, number> }[];
-  carryTrend: { date: string; daily: number; cumulative: number; byStructType: Record<string, number> }[];
+  trend: { date: string; dateFull: string; daily: number; cumulative: number; byType: Record<string, number>; byStructType: Record<string, number> }[];
+  carryTrend: { date: string; dateFull: string; daily: number; cumulative: number; byStructType: Record<string, number> }[];
   latestDate: string;
+  allDates: string[];
   allTypes: string[];
   allStructTypes: string[];
   allCarryStructTypes: string[];
@@ -1598,7 +1599,7 @@ export async function fetchPnlTrend(): Promise<{
       SELECT DISTINCT std_dt FROM breakdownprc ORDER BY std_dt ASC
     `;
     const allDates = datesResult.rows.map((r) => String(r.std_dt));
-    if (allDates.length < 2) return { trend: [], carryTrend: [], latestDate: '', allTypes: [], allStructTypes: [], allCarryStructTypes: [] };
+    if (allDates.length < 2) return { trend: [], carryTrend: [], latestDate: '', allDates: [], allTypes: [], allStructTypes: [], allCarryStructTypes: [] };
 
     // 모든 MAR 데이터 조회
     const marResult = await sql`
@@ -1706,8 +1707,8 @@ export async function fetchPnlTrend(): Promise<{
     const allTypesSet = new Set<string>();
     const allStructTypesSet = new Set<string>();
     const allCarryStructTypesSet = new Set<string>();
-    const trend: { date: string; daily: number; cumulative: number; byType: Record<string, number>; byStructType: Record<string, number> }[] = [];
-    const carryTrend: { date: string; daily: number; cumulative: number; byStructType: Record<string, number> }[] = [];
+    const trend: { date: string; dateFull: string; daily: number; cumulative: number; byType: Record<string, number>; byStructType: Record<string, number> }[] = [];
+    const carryTrend: { date: string; dateFull: string; daily: number; cumulative: number; byStructType: Record<string, number> }[] = [];
     let cumulative = 0;
     let carryCumulative = 0;
 
@@ -1797,6 +1798,7 @@ export async function fetchPnlTrend(): Promise<{
 
       trend.push({
         date: `${currDt.slice(4, 6)}/${currDt.slice(6, 8)}`,
+        dateFull: currDt,
         daily: Math.round(dailyEok * 100) / 100,
         cumulative: Math.round(cumulativeEok * 100) / 100,
         byType,
@@ -1813,6 +1815,7 @@ export async function fetchPnlTrend(): Promise<{
       carryCumulative += carryDailyKrw;
       carryTrend.push({
         date: `${currDt.slice(4, 6)}/${currDt.slice(6, 8)}`,
+        dateFull: currDt,
         daily: Math.round((carryDailyKrw / 100000000) * 100) / 100,
         cumulative: Math.round((carryCumulative / 100000000) * 100) / 100,
         byStructType: carryByStructType,
@@ -1822,10 +1825,10 @@ export async function fetchPnlTrend(): Promise<{
     const allTypes = Array.from(allTypesSet).sort();
     const allStructTypes = Array.from(allStructTypesSet).sort();
     const allCarryStructTypes = Array.from(allCarryStructTypesSet).sort();
-    return { trend, carryTrend, latestDate: allDates[allDates.length - 1], allTypes, allStructTypes, allCarryStructTypes };
+    return { trend, carryTrend, latestDate: allDates[allDates.length - 1], allDates, allTypes, allStructTypes, allCarryStructTypes };
   } catch (error) {
     console.error('fetchPnlTrend Error:', error);
-    return { trend: [], carryTrend: [], latestDate: '', allTypes: [], allStructTypes: [], allCarryStructTypes: [] };
+    return { trend: [], carryTrend: [], latestDate: '', allDates: [], allTypes: [], allStructTypes: [], allCarryStructTypes: [] };
   }
 }
 
@@ -1835,8 +1838,8 @@ export async function fetchPnlTrend(): Promise<{
  * targetDate: 선택된 날짜의 MM/DD 포맷 (trend.date와 동일)
  */
 export function computePnlSummaryCards(
-  trend: { date: string; daily: number; cumulative: number }[],
-  carryTrend: { date: string; daily: number; cumulative: number }[],
+  trend: { date: string; dateFull?: string; daily: number; cumulative: number }[],
+  carryTrend: { date: string; dateFull?: string; daily: number; cumulative: number }[],
   targetDateMMDD?: string,
 ): {
   dailyPnl: number;
@@ -1998,5 +2001,89 @@ export async function fetchRiskDelta(): Promise<{
   } catch (error) {
     console.error('fetchRiskDelta Error:', error);
     return { data: [], latestCurves: null };
+  }
+}
+
+/**
+ * pnlrtp 최신일 전체 데이터 (커브별 테너 상세)
+ * KRW, KTB, USD, UST 순으로 반환
+ */
+export type PnlrtpRow = {
+  intl_ytm_curv_cd: string;
+  curv_tp_cd: string;
+  tnr_cd: string;
+  nt_tnr_dlt: number;
+  str_tnr_dlt: number;
+  str_tnr_delta_chg: number;
+  hdg_tnr_dlt: number;
+  hdg_tnr_dlt_chg: number;
+  sprdvl_sprd: number;
+  sprdvl_sprd_yr: number;
+  sprdvl_dlt: number;
+  sprdvl_crry_d: number;
+  crry: number;
+  rll: number;
+};
+
+export async function fetchPnlrtpDetail(): Promise<{
+  rows: PnlrtpRow[];
+  stdDt: string;
+}> {
+  noStore();
+
+  try {
+    const result = await sql`
+      SELECT
+        intl_ytm_curv_cd, curv_tp_cd, tnr_cd,
+        COALESCE(nt_tnr_dlt, 0) AS nt_tnr_dlt,
+        COALESCE(str_tnr_dlt, 0) AS str_tnr_dlt,
+        COALESCE(str_tnr_delta_chg, 0) AS str_tnr_delta_chg,
+        COALESCE(hdg_tnr_dlt, 0) AS hdg_tnr_dlt,
+        COALESCE(hdg_tnr_dlt_chg, 0) AS hdg_tnr_dlt_chg,
+        COALESCE(sprdvl_sprd, 0) AS sprdvl_sprd,
+        COALESCE(sprdvl_sprd_yr, 0) AS sprdvl_sprd_yr,
+        COALESCE(sprdvl_dlt, 0) AS sprdvl_dlt,
+        COALESCE(sprdvl_crry_d, 0) AS sprdvl_crry_d,
+        COALESCE(crry, 0) AS crry,
+        COALESCE(rll, 0) AS rll
+      FROM pnlrtp
+      WHERE std_dt = (SELECT MAX(std_dt) FROM pnlrtp)
+      ORDER BY
+        CASE intl_ytm_curv_cd
+          WHEN 'KRW' THEN 1 WHEN 'KTB' THEN 2
+          WHEN 'USD' THEN 3 WHEN 'UST' THEN 4
+          ELSE 5
+        END,
+        curv_tp_cd,
+        CASE tnr_cd
+          WHEN 'Net' THEN 9999
+          ELSE CAST(REGEXP_REPLACE(tnr_cd, '[^0-9]', '', 'g') AS INTEGER)
+        END NULLS LAST
+    `;
+
+    const dtResult = await sql`SELECT MAX(std_dt) AS dt FROM pnlrtp`;
+    const stdDt = dtResult.rows.length > 0 ? String(dtResult.rows[0].dt) : '';
+
+    const rows: PnlrtpRow[] = result.rows.map((r) => ({
+      intl_ytm_curv_cd: String(r.intl_ytm_curv_cd),
+      curv_tp_cd: String(r.curv_tp_cd),
+      tnr_cd: String(r.tnr_cd),
+      nt_tnr_dlt: Number(r.nt_tnr_dlt),
+      str_tnr_dlt: Number(r.str_tnr_dlt),
+      str_tnr_delta_chg: Number(r.str_tnr_delta_chg),
+      hdg_tnr_dlt: Number(r.hdg_tnr_dlt),
+      hdg_tnr_dlt_chg: Number(r.hdg_tnr_dlt_chg),
+      sprdvl_sprd: Number(r.sprdvl_sprd),
+      sprdvl_sprd_yr: Number(r.sprdvl_sprd_yr),
+      sprdvl_dlt: Number(r.sprdvl_dlt),
+      sprdvl_crry_d: Number(r.sprdvl_crry_d),
+      crry: Number(r.crry),
+      rll: Number(r.rll),
+    }));
+
+    return { rows, stdDt };
+  } catch (error) {
+    console.error('fetchPnlrtpDetail Error:', error);
+    return { rows: [], stdDt: '' };
   }
 }

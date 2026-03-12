@@ -1,7 +1,7 @@
 // app/dashboard/risk/page.tsx
 import { lusitana } from '@/app/ui/fonts';
-import { fetchGappingBtbDelta, fetchRiskDelta } from '@/app/lib/data';
-import type { GappingDeltaSummary } from '@/app/lib/data';
+import { fetchGappingBtbDelta, fetchRiskDelta, fetchPnlrtpDetail } from '@/app/lib/data';
+import type { GappingDeltaSummary, PnlrtpRow } from '@/app/lib/data';
 import { KrwDeltaChart, UsdDeltaChart, TotalDeltaChart } from '@/app/ui/risk/delta-chart';
 
 // 금액 포맷 헬퍼
@@ -201,11 +201,118 @@ function GappingDeltaCard({ data }: { data: GappingDeltaSummary }) {
   );
 }
 
+// 숫자 포맷 (소수점 단위별)
+function fmtNum(v: number, decimals = 0): string {
+  if (v === 0) return '-';
+  return v.toLocaleString('ko-KR', { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
+}
+
+// pnlrtp 커브별 테이블
+function PnlrtpCurveTable({
+  curveCode,
+  rows,
+}: {
+  curveCode: string;
+  rows: PnlrtpRow[];
+}) {
+  if (rows.length === 0) return null;
+
+  const badgeColor: Record<string, string> = {
+    KRW: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+    KTB: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
+    USD: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+    UST: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+  };
+
+  return (
+    <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm overflow-x-auto">
+      <div className="flex items-center gap-2 mb-3">
+        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ${badgeColor[curveCode] || 'bg-gray-100 text-gray-700'}`}>
+          {curveCode}
+        </span>
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Curve Detail
+        </span>
+      </div>
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="border-b-2 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400">
+            <th className="pb-1.5 text-left font-medium w-14" rowSpan={2}>Tenor</th>
+            <th className="pb-0.5 text-center font-semibold border-l border-gray-200 dark:border-gray-700" colSpan={5}>
+              Total Delta Panel
+            </th>
+            <th className="pb-0.5 text-center font-semibold border-l border-gray-200 dark:border-gray-700" colSpan={4}>
+              Spread Value
+            </th>
+            <th className="pb-0.5 text-center font-semibold border-l border-gray-200 dark:border-gray-700" colSpan={2}>
+              Carry &amp; Roll
+            </th>
+          </tr>
+          <tr className="border-b border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500">
+            {/* Delta Panel */}
+            <th className="pb-1 text-right font-normal border-l border-gray-200 dark:border-gray-700 px-1">Net</th>
+            <th className="pb-1 text-right font-normal px-1">STR.Total</th>
+            <th className="pb-1 text-right font-normal px-1">S.Dlt Chg</th>
+            <th className="pb-1 text-right font-normal px-1">Hdg Dlt</th>
+            <th className="pb-1 text-right font-normal px-1">H.Dlt Chg</th>
+            {/* Spread Value */}
+            <th className="pb-1 text-right font-normal border-l border-gray-200 dark:border-gray-700 px-1">Spread</th>
+            <th className="pb-1 text-right font-normal px-1">spd/yr</th>
+            <th className="pb-1 text-right font-normal px-1">Delta</th>
+            <th className="pb-1 text-right font-normal px-1">Carry/D</th>
+            {/* Carry & Roll */}
+            <th className="pb-1 text-right font-normal border-l border-gray-200 dark:border-gray-700 px-1">Carry</th>
+            <th className="pb-1 text-right font-normal px-1">Roll</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const isNet = r.tnr_cd === 'Net';
+            const rowCls = isNet
+              ? 'border-t-2 border-gray-300 dark:border-gray-600 font-semibold bg-gray-50 dark:bg-gray-800/50'
+              : 'border-b border-gray-100 dark:border-gray-800';
+            return (
+              <tr key={`${r.curv_tp_cd}-${r.tnr_cd}`} className={rowCls}>
+                <td className="py-1 font-mono font-medium text-gray-700 dark:text-gray-300">
+                  {r.tnr_cd}
+                </td>
+                <td className="py-1 text-right font-mono border-l border-gray-100 dark:border-gray-800 px-1">{fmtNum(r.nt_tnr_dlt)}</td>
+                <td className="py-1 text-right font-mono px-1">{fmtNum(r.str_tnr_dlt)}</td>
+                <td className={`py-1 text-right font-mono px-1 ${r.str_tnr_delta_chg > 0 ? 'text-emerald-600 dark:text-emerald-400' : r.str_tnr_delta_chg < 0 ? 'text-rose-600 dark:text-rose-400' : ''}`}>
+                  {fmtNum(r.str_tnr_delta_chg)}
+                </td>
+                <td className="py-1 text-right font-mono px-1">{fmtNum(r.hdg_tnr_dlt)}</td>
+                <td className={`py-1 text-right font-mono px-1 ${r.hdg_tnr_dlt_chg > 0 ? 'text-emerald-600 dark:text-emerald-400' : r.hdg_tnr_dlt_chg < 0 ? 'text-rose-600 dark:text-rose-400' : ''}`}>
+                  {fmtNum(r.hdg_tnr_dlt_chg)}
+                </td>
+                <td className="py-1 text-right font-mono border-l border-gray-100 dark:border-gray-800 px-1">{fmtNum(r.sprdvl_sprd, 2)}</td>
+                <td className="py-1 text-right font-mono px-1">{fmtNum(r.sprdvl_sprd_yr, 2)}</td>
+                <td className="py-1 text-right font-mono px-1">{fmtNum(r.sprdvl_dlt)}</td>
+                <td className="py-1 text-right font-mono px-1">{fmtNum(r.sprdvl_crry_d)}</td>
+                <td className="py-1 text-right font-mono border-l border-gray-100 dark:border-gray-800 px-1">{fmtNum(r.crry)}</td>
+                <td className="py-1 text-right font-mono px-1">{fmtNum(r.rll)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default async function RiskPage() {
-  const [gappingDelta, riskDelta] = await Promise.all([
+  const [gappingDelta, riskDelta, pnlrtpDetail] = await Promise.all([
     fetchGappingBtbDelta(),
     fetchRiskDelta(),
+    fetchPnlrtpDetail(),
   ]);
+
+  // pnlrtp 커브별 그룹핑 (KRW → KTB → USD → UST 순)
+  const curveOrder = ['KRW', 'KTB', 'USD', 'UST'];
+  const pnlrtpByCurve: Record<string, PnlrtpRow[]> = {};
+  for (const code of curveOrder) {
+    pnlrtpByCurve[code] = pnlrtpDetail.rows.filter((r) => r.intl_ytm_curv_cd === code);
+  }
 
   // 최신일 델타 (pnlrtp 기반)
   const latestDelta = riskDelta.data.length > 0
@@ -294,6 +401,27 @@ export default async function RiskPage() {
         </h2>
         <TotalDeltaChart data={riskDelta.data} />
       </div>
+
+      {/* pnlrtp 커브별 상세 */}
+      {pnlrtpDetail.rows.length > 0 && (
+        <div className="mb-6">
+          <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
+            커브별 Delta · Spread · Carry 상세
+            {pnlrtpDetail.stdDt && (
+              <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+                ({pnlrtpDetail.stdDt})
+              </span>
+            )}
+          </h2>
+          <div className="space-y-4">
+            {curveOrder.map((code) =>
+              pnlrtpByCurve[code]?.length > 0 ? (
+                <PnlrtpCurveTable key={code} curveCode={code} rows={pnlrtpByCurve[code]} />
+              ) : null,
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 신용 리스크 섹션 */}
       <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm">
