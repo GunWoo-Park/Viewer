@@ -1884,3 +1884,119 @@ export function computePnlSummaryCards(
     carryPnl: Math.round(carryPnl * 100) / 100,
   };
 }
+
+/**
+ * Risk Delta 추이 데이터
+ * pnlrtp의 HDG_TNR_DLT(Net) + market_rates의 KTB/UST 10Y 금리
+ * KRW Delta = KTB + KRW Net, USD Delta = UST + USD Net
+ */
+export async function fetchRiskDelta(): Promise<{
+  data: {
+    date: string;       // MM/DD
+    dateFull: string;   // YYYYMMDD
+    krwDelta: number;   // KRW+KTB Net 델타 (억) — 원화
+    usdDelta: number;   // USD+UST Net 델타 (억) — 이미 원화 환산됨
+    totalDelta: number; // KRW+USD 합계 (억)
+    ktb10y: number | null;  // KTB 10Y 금리 (%)
+    ust10y: number | null;  // UST 10Y 금리 (%)
+  }[];
+  // 최신일 개별 커브 델타 (카드 표시용, 원 단위)
+  latestCurves: {
+    krw: number;  // KRW 커브 원 단위
+    ktb: number;  // KTB 커브 원 단위
+    usd: number;  // USD 커브 원 단위
+    ust: number;  // UST 커브 원 단위
+  } | null;
+}> {
+  noStore();
+
+  try {
+    // KRW Delta (KTB+KRW Net) — 차트용
+    const krwResult = await sql`
+      SELECT std_dt, SUM(hdg_tnr_dlt) AS delta
+      FROM pnlrtp
+      WHERE intl_ytm_curv_cd IN ('KRW','KTB') AND tnr_cd = 'Net'
+      GROUP BY std_dt ORDER BY std_dt
+    `;
+
+    // USD Delta (UST+USD Net) — 차트용, 이미 원화 환산된 값
+    const usdResult = await sql`
+      SELECT std_dt, SUM(hdg_tnr_dlt) AS delta
+      FROM pnlrtp
+      WHERE intl_ytm_curv_cd IN ('USD','UST') AND tnr_cd = 'Net'
+      GROUP BY std_dt ORDER BY std_dt
+    `;
+
+    // 개별 커브 최신일 델타 (카드 표시용)
+    const curveResult = await sql`
+      SELECT intl_ytm_curv_cd, SUM(hdg_tnr_dlt) AS delta
+      FROM pnlrtp
+      WHERE tnr_cd = 'Net'
+        AND std_dt = (SELECT MAX(std_dt) FROM pnlrtp)
+      GROUP BY intl_ytm_curv_cd
+    `;
+
+    // 시장 금리
+    const rateResult = await sql`
+      SELECT std_dt, ktb_10y, ust_10y FROM market_rates ORDER BY std_dt
+    `;
+
+    // 맵 변환
+    const krwMap: Record<string, number> = {};
+    for (const r of krwResult.rows) krwMap[String(r.std_dt)] = Number(r.delta);
+
+    const usdMap: Record<string, number> = {};
+    for (const r of usdResult.rows) usdMap[String(r.std_dt)] = Number(r.delta);
+
+    const rateMap: Record<string, { ktb: number; ust: number }> = {};
+    for (const r of rateResult.rows) {
+      rateMap[String(r.std_dt)] = { ktb: Number(r.ktb_10y), ust: Number(r.ust_10y) };
+    }
+
+    // 개별 커브 델타 맵
+    const curveMap: Record<string, number> = {};
+    for (const r of curveResult.rows) {
+      curveMap[String(r.intl_ytm_curv_cd)] = Number(r.delta);
+    }
+    const latestCurves = curveResult.rows.length > 0 ? {
+      krw: curveMap['KRW'] || 0,
+      ktb: curveMap['KTB'] || 0,
+      usd: curveMap['USD'] || 0,
+      ust: curveMap['UST'] || 0,
+    } : null;
+
+    // 모든 날짜 (pnlrtp 기준)
+    const allDates = [...new Set([
+      ...krwResult.rows.map((r) => String(r.std_dt)),
+      ...usdResult.rows.map((r) => String(r.std_dt)),
+    ])].sort();
+
+    const data = allDates.map((dt) => {
+      const krwDeltaRaw = krwMap[dt] || 0;   // 원 단위 (원화)
+      const usdDeltaRaw = usdMap[dt] || 0;   // 원 단위 (이미 원화 환산)
+      const rate = rateMap[dt] || null;
+
+      // KRW Delta: 억 단위
+      const krwDelta = Math.round((krwDeltaRaw / 100000000) * 100) / 100;
+      // USD Delta: 억 단위 (이미 원화이므로 동일하게 억 변환)
+      const usdDelta = Math.round((usdDeltaRaw / 100000000) * 100) / 100;
+      // Total: 단순 합산 (억)
+      const totalDelta = Math.round(((krwDeltaRaw + usdDeltaRaw) / 100000000) * 100) / 100;
+
+      return {
+        date: `${dt.slice(4, 6)}/${dt.slice(6, 8)}`,
+        dateFull: dt,
+        krwDelta,
+        usdDelta,
+        totalDelta,
+        ktb10y: rate ? rate.ktb : null,
+        ust10y: rate ? rate.ust : null,
+      };
+    });
+
+    return { data, latestCurves };
+  } catch (error) {
+    console.error('fetchRiskDelta Error:', error);
+    return { data: [], latestCurves: null };
+  }
+}

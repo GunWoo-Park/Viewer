@@ -5,8 +5,9 @@ DataBase 폴더의 TSV 파일을 PostgreSQL에 업로드 (배치 처리)
 - strucprdp: UPSERT (obj_cd 기준)
 
 사용법:
-  python3 scripts/upload_ficc_tables.py                  # 최신 파일 자동 감지
-  python3 scripts/upload_ficc_tables.py --date 202603110923  # 특정 타임스탬프 지정
+  python3 scripts/upload_ficc_tables.py                      # 최신 파일 자동 감지
+  python3 scripts/upload_ficc_tables.py --date 20260312      # 날짜(8자리)만 → 해당 날짜 최신 파일
+  python3 scripts/upload_ficc_tables.py --date 202603121027  # 전체 타임스탬프도 가능
 
 DataBase 폴더에서 {테이블명}_{타임스탬프}.txt 형식의 최신 파일을 자동 감지합니다.
 """
@@ -46,15 +47,24 @@ def num(v):
 
 
 def find_latest_file(table_name, target_ts=None):
-    """DataBase 폴더에서 테이블의 최신 파일 찾기"""
+    """DataBase 폴더에서 테이블의 최신 파일 찾기
+    target_ts: 전체 타임스탬프(202603121027) 또는 날짜만(20260312) 지정 가능
+    """
     pattern = os.path.join(DB_DIR, f'{table_name}_*.txt')
     files = glob.glob(pattern)
     if not files:
         return None
 
     if target_ts:
-        target = os.path.join(DB_DIR, f'{table_name}_{target_ts}.txt')
-        return target if os.path.exists(target) else None
+        # 정확한 타임스탬프 먼저 시도
+        exact = os.path.join(DB_DIR, f'{table_name}_{target_ts}.txt')
+        if os.path.exists(exact):
+            return exact
+        # 날짜(8자리) prefix로 매칭 → 해당 날짜의 최신 파일
+        prefix_matches = [f for f in files if os.path.basename(f).startswith(f'{table_name}_{target_ts}')]
+        if prefix_matches:
+            return max(prefix_matches, key=os.path.getmtime)
+        return None
 
     return max(files, key=os.path.getmtime)
 
@@ -311,6 +321,171 @@ def upload_strucprdp(conn, filepath):
     return len(all_rows)
 
 
+def upload_pnlrtp(conn, filepath):
+    """pnlrtp: 배치 INSERT (ON CONFLICT DO NOTHING)"""
+    print(f"\n[pnlrtp] {os.path.basename(filepath)}")
+    headers, rows = read_tsv(filepath)
+    cur = conn.cursor()
+
+    # 기존 키 조회
+    cur.execute("SELECT std_dt || '|' || intl_ytm_curv_cd || '|' || curv_tp_cd || '|' || tnr_cd FROM pnlrtp")
+    existing = {r[0] for r in cur.fetchall()}
+    print(f"  DB 기존: {len(existing)}건")
+
+    new_rows = []
+    skipped = 0
+    for row in rows:
+        std_dt = clean(row[0])
+        intl_ytm_curv_cd = clean(row[1])
+        curv_tp_cd = clean(row[2])
+        tnr_cd = clean(row[3])
+        if not std_dt or not tnr_cd:
+            continue
+
+        key = f"{std_dt}|{intl_ytm_curv_cd}|{curv_tp_cd}|{tnr_cd}"
+        if key in existing:
+            skipped += 1
+            continue
+
+        reg_dtm = clean(row[4])
+        regr_id = clean(row[5])
+        mdfy_dtm = clean(row[6])
+        mdfyr_id = clean(row[7])
+        nt_tnr_dlt = num(row[8])
+        str_tnr_dlt = num(row[9])
+        str_tnr_delta_chg = num(row[10])
+        hdg_tnr_dlt = num(row[11])
+        hdg_tnr_dlt_chg = num(row[12])
+        sprdvl_sprd = num(row[13])
+        sprdvl_sprd_yr = num(row[14])
+        sprdvl_dlt = num(row[15])
+        sprdvl_crry_d = num(row[16])
+        crry = num(row[17])
+        rll = num(row[18])
+
+        new_rows.append((
+            std_dt, intl_ytm_curv_cd, curv_tp_cd, tnr_cd,
+            reg_dtm, regr_id, mdfy_dtm, mdfyr_id,
+            nt_tnr_dlt, str_tnr_dlt, str_tnr_delta_chg,
+            hdg_tnr_dlt, hdg_tnr_dlt_chg,
+            sprdvl_sprd, sprdvl_sprd_yr, sprdvl_dlt, sprdvl_crry_d,
+            crry, rll,
+        ))
+
+    if new_rows:
+        for i in range(0, len(new_rows), BATCH_SIZE):
+            batch = new_rows[i:i + BATCH_SIZE]
+            execute_values(cur,
+                """INSERT INTO pnlrtp (
+                    std_dt, intl_ytm_curv_cd, curv_tp_cd, tnr_cd,
+                    reg_dtm, regr_id, mdfy_dtm, mdfyr_id,
+                    nt_tnr_dlt, str_tnr_dlt, str_tnr_delta_chg,
+                    hdg_tnr_dlt, hdg_tnr_dlt_chg,
+                    sprdvl_sprd, sprdvl_sprd_yr, sprdvl_dlt, sprdvl_crry_d,
+                    crry, rll
+                ) VALUES %s ON CONFLICT (std_dt, intl_ytm_curv_cd, curv_tp_cd, tnr_cd) DO NOTHING""",
+                batch, page_size=BATCH_SIZE)
+        conn.commit()
+
+    cur.close()
+    print(f"  신규 INSERT: {len(new_rows)}건, 스킵(기존): {skipped}건")
+    return len(new_rows)
+
+
+def upload_market_rates(conn, target_ts=None):
+    """시장 Excel 파일에서 KTB 10Y, UST 10Y 금리 추출 → market_rates UPSERT
+    - Excel에서 T-day 시초가(=T-1 종가) → pnlrtp의 T-1일 기준과 매핑
+    - 시장 파일 날짜 -1 영업일 = delta 날짜
+    """
+    import openpyxl
+
+    # 시장 파일 폴더 찾기
+    market_dir = os.path.join(os.path.dirname(DB_DIR), '시장')
+    if not os.path.exists(market_dir):
+        print(f"\n[market_rates] 시장 폴더 없음: {market_dir}")
+        return 0
+
+    # pnlrtp 영업일 목록 (T-1 매핑용)
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT std_dt FROM pnlrtp ORDER BY std_dt")
+    biz_days = sorted([r[0] for r in cur.fetchall()])
+
+    if not biz_days:
+        print("\n[market_rates] pnlrtp에 데이터 없음, 스킵")
+        cur.close()
+        return 0
+
+    # 시장 Excel 파일 수집
+    market_files = glob.glob(os.path.join(market_dir, '시장_*.xlsx'))
+    if not market_files:
+        print(f"\n[market_rates] 시장 Excel 파일 없음")
+        cur.close()
+        return 0
+
+    # target_ts 필터 (날짜 지정 시 해당 날짜 파일만)
+    if target_ts:
+        date_prefix = target_ts[:8]
+        market_files = [f for f in market_files if date_prefix in os.path.basename(f)]
+
+    print(f"\n[market_rates] {len(market_files)}개 시장 파일 처리")
+
+    # T-day → T-1 영업일 매핑 함수
+    def get_prev_biz_day(dt_str):
+        """dt_str보다 작은 가장 큰 영업일"""
+        for i in range(len(biz_days) - 1, -1, -1):
+            if biz_days[i] < dt_str:
+                return biz_days[i]
+        return None
+
+    inserted = 0
+    for filepath in sorted(market_files):
+        fname = os.path.basename(filepath)
+        # 파일명에서 날짜 추출: 시장_YYYYMMDD.xlsx
+        parts = fname.replace('.xlsx', '').split('_')
+        if len(parts) < 2:
+            continue
+        file_date = parts[1][:8]
+
+        # T-1 영업일 매핑
+        mapped_date = get_prev_biz_day(file_date)
+        if not mapped_date:
+            continue
+
+        try:
+            wb = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
+            ws = wb.active
+
+            # KTB 10Y: X17 (열24, 행17)
+            ktb_val = ws.cell(row=17, column=24).value
+            # UST 10Y: J11 (열10, 행11)
+            ust_val = ws.cell(row=11, column=10).value
+            wb.close()
+
+            ktb_10y = float(ktb_val) if ktb_val is not None else None
+            ust_10y = float(ust_val) if ust_val is not None else None
+
+            if ktb_10y is None and ust_10y is None:
+                continue
+
+            cur.execute(
+                """INSERT INTO market_rates (std_dt, ktb_10y, ust_10y)
+                   VALUES (%s, %s, %s)
+                   ON CONFLICT (std_dt) DO UPDATE SET
+                     ktb_10y = EXCLUDED.ktb_10y,
+                     ust_10y = EXCLUDED.ust_10y""",
+                (mapped_date, ktb_10y, ust_10y)
+            )
+            inserted += 1
+        except Exception as e:
+            print(f"  {fname} 오류: {e}")
+            continue
+
+    conn.commit()
+    cur.close()
+    print(f"  UPSERT: {inserted}건")
+    return inserted
+
+
 def main():
     target_ts = None
     if len(sys.argv) > 1 and sys.argv[1] == '--date' and len(sys.argv) > 2:
@@ -327,6 +502,7 @@ def main():
         'eq_unasp': upload_eq_unasp,
         'excpnp': upload_excpnp,
         'strucprdp': upload_strucprdp,
+        'pnlrtp': upload_pnlrtp,
     }
 
     files_found = {}
@@ -348,6 +524,9 @@ def main():
         for table_name, filepath in files_found.items():
             fn = tables[table_name]
             total += fn(conn, filepath)
+
+        # market_rates: 시장 Excel → 금리 데이터 업로드
+        total += upload_market_rates(conn, target_ts)
     except Exception as e:
         conn.rollback()
         print(f"\n오류 발생: {e}")

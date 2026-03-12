@@ -1,7 +1,8 @@
 // app/dashboard/risk/page.tsx
 import { lusitana } from '@/app/ui/fonts';
-import { fetchGappingBtbDelta } from '@/app/lib/data';
+import { fetchGappingBtbDelta, fetchRiskDelta } from '@/app/lib/data';
 import type { GappingDeltaSummary } from '@/app/lib/data';
+import { KrwDeltaChart, UsdDeltaChart, TotalDeltaChart } from '@/app/ui/risk/delta-chart';
 
 // 금액 포맷 헬퍼
 function formatDelta(value: number, format: 'krw' | 'usd'): string {
@@ -18,6 +19,22 @@ function formatDelta(value: number, format: 'krw' | 'usd'): string {
   const thousands = abs / 1000;
   if (thousands >= 1) return `${thousands.toLocaleString('en-US', { maximumFractionDigits: 1 })}K`;
   return abs.toLocaleString('en-US');
+}
+
+// USD 델타 셀: 달러 + 원화 환산 병기
+function UsdDeltaCell({ usd, rate }: { usd: number; rate: number }) {
+  if (usd <= 0) return <span className="text-gray-400">-</span>;
+  const krwEquiv = usd * rate;
+  return (
+    <div>
+      <span className="text-violet-600 dark:text-violet-400">
+        ${(usd / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })}K
+      </span>
+      <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">
+        (₩{(krwEquiv / 10000).toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만)
+      </span>
+    </div>
+  );
 }
 
 // 델타값 인라인 행
@@ -42,7 +59,7 @@ function DeltaRow({ label, value }: { label: string; value: number }) {
   );
 }
 
-// 통화 그룹 카드
+// 통화 그룹 카드 (KRW/KTB 또는 USD/UST 개별 표시)
 function CurrencyGroupCard({
   currency,
   items,
@@ -88,7 +105,7 @@ function CurrencyGroupCard({
   );
 }
 
-// 전체 Net Delta 카드
+// 전체 Net Delta 카드 (원 단위 합산)
 function TotalDeltaCard({ value }: { value: number }) {
   const isNeg = value < 0;
   const sign = isNeg ? '−' : '+';
@@ -107,22 +124,6 @@ function TotalDeltaCard({ value }: { value: number }) {
       <p className="mt-1 font-mono text-[10px] text-gray-500 dark:text-gray-400">
         {sign}{Math.abs(value).toLocaleString()}
       </p>
-    </div>
-  );
-}
-
-// USD 델타 셀: 달러 + 원화 환산 병기
-function UsdDeltaCell({ usd, rate }: { usd: number; rate: number }) {
-  if (usd <= 0) return <span className="text-gray-400">-</span>;
-  const krwEquiv = usd * rate;
-  return (
-    <div>
-      <span className="text-violet-600 dark:text-violet-400">
-        ${(usd / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })}K
-      </span>
-      <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">
-        (₩{(krwEquiv / 10000).toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만)
-      </span>
     </div>
   );
 }
@@ -201,64 +202,107 @@ function GappingDeltaCard({ data }: { data: GappingDeltaSummary }) {
 }
 
 export default async function RiskPage() {
-  const gappingDelta = await fetchGappingBtbDelta();
+  const [gappingDelta, riskDelta] = await Promise.all([
+    fetchGappingBtbDelta(),
+    fetchRiskDelta(),
+  ]);
+
+  // 최신일 델타 (pnlrtp 기반)
+  const latestDelta = riskDelta.data.length > 0
+    ? riskDelta.data[riskDelta.data.length - 1]
+    : null;
+
+  // 개별 커브 델타 (원 단위)
+  const curves = riskDelta.latestCurves ?? { krw: 0, ktb: 0, usd: 0, ust: 0 };
+
+  const baseDateLabel = latestDelta
+    ? `${latestDelta.dateFull.slice(0, 4)}-${latestDelta.dateFull.slice(4, 6)}-${latestDelta.dateFull.slice(6, 8)}`
+    : '';
 
   return (
     <main>
-      <h1 className={`${lusitana.className} mb-4 text-xl md:text-2xl`}>
-        RISK
-      </h1>
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className={`${lusitana.className} text-xl md:text-2xl dark:text-gray-100`}>
+          RISK
+        </h1>
+        {baseDateLabel && (
+          <div className="flex items-center gap-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400">기준일</span>
+            <span className="text-sm font-mono font-semibold text-gray-700 dark:text-gray-200">
+              {baseDateLabel}
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* NET DELTA(좌) | Gapping BTB Delta(우) */}
       <div className="mb-6 grid gap-4 grid-cols-1 lg:grid-cols-2">
-        {/* 좌측: KRW·USD 가로 + 전체 Net Delta */}
+        {/* 좌측: KRW·USD 개별 커브 + 전체 Net Delta */}
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <CurrencyGroupCard
               currency="KRW"
               items={[
-                { label: 'KRW Hedge', value: -318069592 },
-                { label: 'KTB Hedge', value: -1439581653 },
+                { label: 'KRW Hedge', value: curves.krw },
+                { label: 'KTB Hedge', value: curves.ktb },
               ]}
             />
             <CurrencyGroupCard
               currency="USD"
               items={[
-                { label: 'USD Hedge', value: -770462 },
-                { label: 'UST Hedge', value: -85500336 },
+                { label: 'USD Hedge', value: curves.usd },
+                { label: 'UST Hedge', value: curves.ust },
               ]}
             />
           </div>
-          <TotalDeltaCard value={-318069592 + -770462 + -1439581653 + -85500336} />
+          <TotalDeltaCard value={curves.krw + curves.ktb + curves.usd + curves.ust} />
         </div>
 
         {/* 우측: Gapping BTB Delta */}
         <GappingDeltaCard data={gappingDelta} />
       </div>
 
-      {/* 금리 리스크 섹션 */}
-      <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm">
+      {/* KRW Delta vs KTB 10Y */}
+      <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
         <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
-          금리 리스크 (Interest Rate Risk)
+          KRW Hedge Net Delta vs KTB 10Y
+          <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+            (KRW+KTB Net 델타(억) · 국고채 10년 금리(%))
+          </span>
         </h2>
-        <div className="flex h-64 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-          <p className="text-lg font-medium text-gray-400 dark:text-gray-500">
-            🚧 DV01 / Key Rate Duration
-          </p>
-          <p className="mt-2 text-sm text-gray-300 dark:text-gray-600">
-            데이터 소스 연동 후 구현 예정
-          </p>
-        </div>
+        <KrwDeltaChart data={riskDelta.data} />
+      </div>
+
+      {/* USD Delta vs UST 10Y */}
+      <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+        <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
+          USD Hedge Net Delta vs UST 10Y
+          <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+            (USD+UST Net 델타(억) · 미국채 10년 금리(%))
+          </span>
+        </h2>
+        <UsdDeltaChart data={riskDelta.data} />
+      </div>
+
+      {/* Total Delta vs KTB 10Y */}
+      <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+        <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
+          Total Hedge Net Delta vs KTB·UST 10Y
+          <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+            (KRW+USD 합계(억) · 국고채/미국채 10년 금리(%))
+          </span>
+        </h2>
+        <TotalDeltaChart data={riskDelta.data} />
       </div>
 
       {/* 신용 리스크 섹션 */}
-      <div className="mt-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm">
+      <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm">
         <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
           신용 리스크 (Credit Risk)
         </h2>
         <div className="flex h-64 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <p className="text-lg font-medium text-gray-400 dark:text-gray-500">
-            🚧 거래상대방 신용 노출
+            거래상대방 신용 노출
           </p>
           <p className="mt-2 text-sm text-gray-300 dark:text-gray-600">
             데이터 소스 연동 후 구현 예정
@@ -267,13 +311,13 @@ export default async function RiskPage() {
       </div>
 
       {/* 유동성 리스크 섹션 */}
-      <div className="mt-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm">
+      <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm">
         <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
           유동성 리스크 (Liquidity Risk)
         </h2>
         <div className="flex h-64 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <p className="text-lg font-medium text-gray-400 dark:text-gray-500">
-            🚧 만기 구조 / Cash Flow 분석
+            만기 구조 / Cash Flow 분석
           </p>
           <p className="mt-2 text-sm text-gray-300 dark:text-gray-600">
             데이터 소스 연동 후 구현 예정
