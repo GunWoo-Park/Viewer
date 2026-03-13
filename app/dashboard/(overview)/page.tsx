@@ -72,7 +72,7 @@ export default async function Page({
 
   // PnL by type → PnL 내림차순 (양수 큰 값 → 음수 큰 값)
   const sortedPnlByType = [...pnlByType].sort(
-    (a, b) => b.total_daily_pnl_krw - a.total_daily_pnl_krw,
+    (a, b) => b.total_pnl_krw - a.total_pnl_krw,
   );
 
   // Risk Delta: 선택 날짜에 해당하는 데이터 사용
@@ -181,7 +181,7 @@ export default async function Page({
 
         {/* 하단: 종목유형별 통합 테이블 (인라인 바 포함) */}
         {(() => {
-          const maxAbsPnl = Math.max(...sortedPnlByType.map((r) => Math.abs(r.total_daily_pnl_krw)), 1);
+          const maxAbsPnl = Math.max(...sortedPnlByType.map((r) => Math.abs(r.total_pnl_krw)), 1);
           return (
             <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm overflow-x-auto">
               <table className="w-full text-xs">
@@ -198,7 +198,7 @@ export default async function Page({
                 </thead>
                 <tbody>
                   {sortedPnlByType.map((row, i) => {
-                    const pnlVal = row.total_daily_pnl_krw;
+                    const pnlVal = row.total_pnl_krw;
                     const cpnVal = row.total_coupon_krw;
                     const st = row.struct_type || row.type1 || '-';
                     const barPct = Math.abs(pnlVal) / maxAbsPnl * 100;
@@ -263,7 +263,7 @@ export default async function Page({
                       {fmtEok(pnlByType.reduce((s, r) => s + (r.curr === 'KRW' ? r.total_notional : r.total_notional * carry.usdKrwRate), 0))}
                     </td>
                     {(() => {
-                      const totalPnl = pnlByType.reduce((s, r) => s + r.total_daily_pnl_krw, 0);
+                      const totalPnl = pnlByType.reduce((s, r) => s + r.total_pnl_krw, 0);
                       const totalCpn = pnlByType.reduce((s, r) => s + r.total_coupon_krw, 0);
                       return (
                         <>

@@ -49,19 +49,39 @@ def num(v):
 def find_latest_file(table_name, target_ts=None):
     """DataBase 폴더에서 테이블의 최신 파일 찾기
     target_ts: 전체 타임스탬프(202603121027) 또는 날짜만(20260312) 지정 가능
+    대소문자 무관, 언더스코어 1~2개 모두 매칭
     """
-    pattern = os.path.join(DB_DIR, f'{table_name}_*.txt')
-    files = glob.glob(pattern)
+    # 대소문자/언더스코어 변형 모두 수집
+    all_txt = glob.glob(os.path.join(DB_DIR, '*.txt'))
+    tname_lower = table_name.lower()
+    files = []
+    for f in all_txt:
+        base = os.path.basename(f).lower()
+        # table_name_ 또는 table_name__ 으로 시작하는 파일 매칭
+        if base.startswith(f'{tname_lower}_'):
+            files.append(f)
     if not files:
         return None
 
     if target_ts:
-        # 정확한 타임스탬프 먼저 시도
-        exact = os.path.join(DB_DIR, f'{table_name}_{target_ts}.txt')
-        if os.path.exists(exact):
-            return exact
+        # 정확한 타임스탬프 먼저 시도 (대소문자/언더스코어 변형 포함)
+        for f in files:
+            base = os.path.basename(f).lower()
+            # 테이블명 제거 후 숫자 부분 추출
+            rest = base[len(tname_lower):]
+            # 언더스코어 제거 후 타임스탬프 비교
+            digits = rest.replace('_', '').replace('.txt', '')
+            if digits == target_ts:
+                return f
+
         # 날짜(8자리) prefix로 매칭 → 해당 날짜의 최신 파일
-        prefix_matches = [f for f in files if os.path.basename(f).startswith(f'{table_name}_{target_ts}')]
+        prefix_matches = []
+        for f in files:
+            base = os.path.basename(f).lower()
+            rest = base[len(tname_lower):]
+            digits = rest.replace('_', '').replace('.txt', '')
+            if digits.startswith(target_ts):
+                prefix_matches.append(f)
         if prefix_matches:
             return max(prefix_matches, key=os.path.getmtime)
         return None
