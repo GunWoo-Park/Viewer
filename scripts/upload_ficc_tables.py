@@ -414,16 +414,13 @@ def upload_pnlrtp(conn, filepath):
 
 def upload_market_rates(conn, target_ts=None):
     """시장 Excel 파일에서 KTB 10Y, UST 10Y 금리 추출 → market_rates UPSERT
-    - Excel에서 T-day 시초가(=T-1 종가) → pnlrtp의 T-1일 기준과 매핑
-    - 시장 파일 날짜 -1 영업일 = delta 날짜
+    - market/ 폴더의 YYMMDD_DAILY.xlsx 또는 시장/ 폴더의 시장_YYYYMMDD.xlsx 지원
+    - 엑셀 T일 시초가 = T-1일 종가 → pnlrtp의 T-1일(std_dt)에 매핑
     """
     import openpyxl
+    import re
 
-    # 시장 파일 폴더 찾기
-    market_dir = os.path.join(os.path.dirname(DB_DIR), '시장')
-    if not os.path.exists(market_dir):
-        print(f"\n[market_rates] 시장 폴더 없음: {market_dir}")
-        return 0
+    project_root = os.path.dirname(DB_DIR)
 
     # pnlrtp 영업일 목록 (T-1 매핑용)
     cur = conn.cursor()
@@ -435,21 +432,40 @@ def upload_market_rates(conn, target_ts=None):
         cur.close()
         return 0
 
-    # 시장 Excel 파일 수집
-    market_files = glob.glob(os.path.join(market_dir, '시장_*.xlsx'))
-    if not market_files:
-        print(f"\n[market_rates] 시장 Excel 파일 없음")
+    # 시장 Excel 파일 수집: market/ 폴더 (YYMMDD_DAILY.xlsx) + 시장/ 폴더 (시장_YYYYMMDD.xlsx)
+    market_entries = []  # (filepath, file_date_YYYYMMDD)
+
+    # 1) market/ 폴더: YYMMDD_DAILY.xlsx → 20YYMMDD
+    market_dir1 = os.path.join(project_root, 'market')
+    if os.path.exists(market_dir1):
+        for f in glob.glob(os.path.join(market_dir1, '*_DAILY.xlsx')):
+            fname = os.path.basename(f)
+            m = re.match(r'^(\d{6})_DAILY', fname)
+            if m:
+                market_entries.append((f, '20' + m.group(1)))
+
+    # 2) 시장/ 폴더: 시장_YYYYMMDD.xlsx
+    market_dir2 = os.path.join(project_root, '시장')
+    if os.path.exists(market_dir2):
+        for f in glob.glob(os.path.join(market_dir2, '시장_*.xlsx')):
+            fname = os.path.basename(f)
+            parts = fname.replace('.xlsx', '').split('_')
+            if len(parts) >= 2 and len(parts[1]) >= 8:
+                market_entries.append((f, parts[1][:8]))
+
+    if not market_entries:
+        print(f"\n[market_rates] 시장 Excel 파일 없음 (market/, 시장/ 모두 확인)")
         cur.close()
         return 0
 
     # target_ts 필터 (날짜 지정 시 해당 날짜 파일만)
     if target_ts:
         date_prefix = target_ts[:8]
-        market_files = [f for f in market_files if date_prefix in os.path.basename(f)]
+        market_entries = [(f, d) for f, d in market_entries if d.startswith(date_prefix)]
 
-    print(f"\n[market_rates] {len(market_files)}개 시장 파일 처리")
+    print(f"\n[market_rates] {len(market_entries)}개 시장 파일 처리")
 
-    # T-day → T-1 영업일 매핑 함수
+    # T-day → T-1 영업일 매핑 (엑셀 T일 시초가 = T-1일 종가)
     def get_prev_biz_day(dt_str):
         """dt_str보다 작은 가장 큰 영업일"""
         for i in range(len(biz_days) - 1, -1, -1):
@@ -458,15 +474,9 @@ def upload_market_rates(conn, target_ts=None):
         return None
 
     inserted = 0
-    for filepath in sorted(market_files):
+    for filepath, file_date in sorted(market_entries, key=lambda x: x[1]):
         fname = os.path.basename(filepath)
-        # 파일명에서 날짜 추출: 시장_YYYYMMDD.xlsx
-        parts = fname.replace('.xlsx', '').split('_')
-        if len(parts) < 2:
-            continue
-        file_date = parts[1][:8]
-
-        # T-1 영업일 매핑
+        # T-1 영업일 매핑: 엑셀 T일 시초가 → T-1일 종가
         mapped_date = get_prev_biz_day(file_date)
         if not mapped_date:
             continue

@@ -168,6 +168,7 @@ export default async function Page({
               value={Math.round(pnlByType.reduce((s, r) => s + r.total_coupon_krw, 0) / 100000000 * 100) / 100}
               unit="억"
             />
+            <PnlCard label="YTD Carry PnL" value={pnlCards.ytdCarryPnl} unit="억" />
           </div>
 
           {/* 우측: 1주일 struct_type별 PnL Stacked Bar */}

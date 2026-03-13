@@ -73,8 +73,8 @@ export function PnlTrendChart({
   data: { date: string; daily: number; cumulative: number; byType: Record<string, number> }[];
   allTypes: string[];
 }) {
-  // 서버/클라이언트 부동소수점 차이로 인한 hydration 에러 방지
   const [mounted, setMounted] = useState(false);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
@@ -235,6 +235,71 @@ export function PnlTrendChart({
         >
           {data[n - 1].cumulative.toFixed(1)}억
         </text>
+
+        {/* 호버 인터랙션 영역 */}
+        {data.map((d, i) => {
+          const colW = chartW / n;
+          return (
+            <rect key={`hover-${i}`} x={padL + i * colW} y={padT} width={colW} height={chartH}
+              fill="transparent" onMouseEnter={() => setHoveredIdx(i)} onMouseLeave={() => setHoveredIdx(null)}
+              style={{ cursor: 'crosshair' }} />
+          );
+        })}
+
+        {/* 호버 가이드라인 */}
+        {hoveredIdx !== null && (
+          <line x1={toX(hoveredIdx)} y1={padT} x2={toX(hoveredIdx)} y2={padT + chartH}
+            stroke="#9CA3AF" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
+        )}
+
+        {/* 호버 시 누적 라인 강조 점 */}
+        {hoveredIdx !== null && (
+          <circle cx={toX(hoveredIdx)} cy={toY(data[hoveredIdx].cumulative)} r={5}
+            fill="#F59E0B" stroke="white" strokeWidth={2} />
+        )}
+
+        {/* 툴팁 */}
+        {hoveredIdx !== null && (() => {
+          const d = data[hoveredIdx];
+          const cx = toX(hoveredIdx);
+          const tooltipW = 180;
+          const tooltipOnLeft = cx > padL + chartW / 2;
+          const tx = tooltipOnLeft ? cx - tooltipW - 12 : cx + 12;
+          const ty = padT + 10;
+          // 유형별 상세 (0이 아닌 것만)
+          const typeEntries = allTypes
+            .filter((t) => d.byType[t] && Math.abs(d.byType[t]) > 0.001)
+            .sort((a, b) => (d.byType[b] || 0) - (d.byType[a] || 0));
+          const maxTypeRows = 5;
+          const shownTypes = typeEntries.slice(0, maxTypeRows);
+          const boxH = 46 + shownTypes.length * 16;
+          return (
+            <g>
+              <rect x={tx} y={ty} width={tooltipW} height={boxH} rx={6}
+                fill="#1f2937" fillOpacity={0.95} stroke="#374151" strokeWidth={1} />
+              <text x={tx + tooltipW / 2} y={ty + 16} textAnchor="middle"
+                style={{ fontSize: 11, fontWeight: 600 }} fill="#e5e7eb">{d.date}</text>
+              <text x={tx + 10} y={ty + 32} style={{ fontSize: 10 }} fill="#9ca3af">Daily</text>
+              <text x={tx + tooltipW / 2 - 5} y={ty + 32} textAnchor="end"
+                style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }}
+                fill={d.daily >= 0 ? '#34d399' : '#fb7185'}>{d.daily > 0 ? '+' : ''}{d.daily.toFixed(2)}억</text>
+              <text x={tx + tooltipW / 2 + 5} y={ty + 32} style={{ fontSize: 10 }} fill="#9ca3af">누적</text>
+              <text x={tx + tooltipW - 10} y={ty + 32} textAnchor="end"
+                style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }} fill="#fbbf24">
+                {d.cumulative > 0 ? '+' : ''}{d.cumulative.toFixed(1)}억</text>
+              {shownTypes.map((t, ti) => (
+                <g key={ti}>
+                  <circle cx={tx + 12} cy={ty + 46 + ti * 16} r={3.5} fill={typeColorMap[t] || '#6b7280'} />
+                  <text x={tx + 22} y={ty + 50 + ti * 16} style={{ fontSize: 9 }} fill="#d1d5db">{t}</text>
+                  <text x={tx + tooltipW - 10} y={ty + 50 + ti * 16} textAnchor="end"
+                    style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace' }}
+                    fill={d.byType[t] >= 0 ? '#86efac' : '#fda4af'}>
+                    {d.byType[t] > 0 ? '+' : ''}{d.byType[t].toFixed(2)}</text>
+                </g>
+              ))}
+            </g>
+          );
+        })()}
       </svg>
 
       {/* 범례 */}
@@ -251,6 +316,232 @@ export function PnlTrendChart({
         <div className="flex items-center gap-1 ml-2">
           <div className="h-0.5 w-4 bg-amber-500" />
           <span>누적 PnL</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== YTD Carry PnL 추이 차트 (Stacked Bar + Cumulative Line) ==========
+
+export function CarryYtdPnlChart({
+  data,
+  allCarryStructTypes,
+}: {
+  data: { date: string; daily: number; cumulative: number; byStructType: Record<string, number> }[];
+  allCarryStructTypes: string[];
+}) {
+  const [mounted, setMounted] = useState(false);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) {
+    return <div className="h-[360px] animate-pulse rounded-lg bg-gray-200 dark:bg-gray-700" />;
+  }
+
+  if (data.length === 0) {
+    return (
+      <div className="flex h-60 items-center justify-center text-gray-400 dark:text-gray-500">
+        Carry PnL 추이 데이터가 없습니다
+      </div>
+    );
+  }
+
+  const PALETTE = [
+    '#0284c7', '#d97706', '#0d9488', '#4f46e5', '#ea580c', '#9333ea',
+    '#e11d48', '#059669', '#7c3aed', '#dc2626', '#2563eb', '#ca8a04',
+    '#0891b2', '#c026d3', '#65a30d', '#f97316', '#6366f1', '#14b8a6',
+  ];
+  const typeColorMap: Record<string, string> = {};
+  allCarryStructTypes.forEach((t, i) => {
+    typeColorMap[t] = PALETTE[i % PALETTE.length];
+  });
+
+  const n = data.length;
+  const W = 1200, H = 340;
+  const padL = 55, padR = 20, padT = 20, padB = 45;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  const allVals = data.flatMap((d) => [d.daily, d.cumulative]);
+  const rawMin = Math.min(...allVals);
+  const rawMax = Math.max(...allVals);
+  const yPad = Math.max((rawMax - rawMin) * 0.1, 1);
+  const yMin = Math.floor(rawMin - yPad);
+  const yMax = Math.ceil(rawMax + yPad);
+  const yRange = yMax - yMin || 1;
+
+  const toX = (i: number) => padL + ((i + 0.5) / n) * chartW;
+  const toY = (v: number) => padT + ((yMax - v) / yRange) * chartH;
+  const zeroY = toY(0);
+  const barW = Math.max((chartW / n) * 0.7, 6);
+
+  const linePath = data
+    .map((d, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(d.cumulative).toFixed(1)}`)
+    .join(' ');
+
+  const yTicks: number[] = [];
+  const step = Math.max(Math.ceil(yRange / 8), 1);
+  for (let v = Math.ceil(yMin / step) * step; v <= yMax; v += step) {
+    yTicks.push(v);
+  }
+  if (!yTicks.includes(0)) yTicks.push(0);
+  yTicks.sort((a, b) => a - b);
+
+  const labelInterval = Math.max(Math.ceil(n / 15), 1);
+
+  return (
+    <div className="w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 800, maxHeight: 360 }}>
+        {/* 그리드 */}
+        {yTicks.map((v) => (
+          <g key={v}>
+            <line
+              x1={padL} y1={toY(v)} x2={W - padR} y2={toY(v)}
+              stroke={v === 0 ? '#6B7280' : '#374151'}
+              strokeWidth={v === 0 ? 1 : 0.5}
+              strokeDasharray={v === 0 ? '' : '4 4'}
+              opacity={0.5}
+            />
+            <text x={padL - 8} y={toY(v) + 4} textAnchor="end" className="fill-gray-400" style={{ fontSize: 10 }}>
+              {v}억
+            </text>
+          </g>
+        ))}
+
+        {/* Stacked Bar (struct_type별) */}
+        {data.map((d, i) => {
+          const x = toX(i) - barW / 2;
+          const positiveTypes = allCarryStructTypes.filter((t) => (d.byStructType[t] || 0) > 0);
+          const negativeTypes = allCarryStructTypes.filter((t) => (d.byStructType[t] || 0) < 0);
+          const bars: JSX.Element[] = [];
+
+          let posOffset = 0;
+          for (const t of positiveTypes) {
+            const val = d.byStructType[t] || 0;
+            const barH = Math.abs(toY(0) - toY(val));
+            const y = zeroY - posOffset - barH;
+            bars.push(
+              <rect key={`${i}-${t}`} x={x} y={y} width={barW} height={Math.max(barH, 0.5)}
+                fill={typeColorMap[t] || '#6b7280'} opacity={0.8} rx={1}>
+                <title>{t}: +{val.toFixed(2)}억</title>
+              </rect>
+            );
+            posOffset += barH;
+          }
+
+          let negOffset = 0;
+          for (const t of negativeTypes) {
+            const val = d.byStructType[t] || 0;
+            const barH = Math.abs(toY(val) - toY(0));
+            const y = zeroY + negOffset;
+            bars.push(
+              <rect key={`${i}-${t}`} x={x} y={y} width={barW} height={Math.max(barH, 0.5)}
+                fill={typeColorMap[t] || '#6b7280'} opacity={0.8} rx={1}>
+                <title>{t}: {val.toFixed(2)}억</title>
+              </rect>
+            );
+            negOffset += barH;
+          }
+
+          return <g key={i}>{bars}</g>;
+        })}
+
+        {/* 누적 라인 */}
+        <path d={linePath} fill="none" stroke="#F59E0B" strokeWidth={2.5} />
+        {data.map((d, i) => (
+          <circle key={i} cx={toX(i)} cy={toY(d.cumulative)} r={2} fill="#F59E0B" />
+        ))}
+
+        {/* X축 라벨 */}
+        {data.map((d, i) =>
+          i % labelInterval === 0 ? (
+            <text key={i} x={toX(i)} y={H - 8} textAnchor="middle" className="fill-gray-400" style={{ fontSize: 9 }}>
+              {d.date}
+            </text>
+          ) : null,
+        )}
+
+        {/* 마지막 누적값 라벨 */}
+        <text
+          x={toX(n - 1) + 5}
+          y={toY(data[n - 1].cumulative) - 8}
+          textAnchor="start"
+          className="fill-amber-500 font-bold"
+          style={{ fontSize: 11 }}
+        >
+          {data[n - 1].cumulative.toFixed(1)}억
+        </text>
+
+        {/* 호버 인터랙션 영역 */}
+        {data.map((d, i) => {
+          const colW = chartW / n;
+          return (
+            <rect key={`hover-${i}`} x={padL + i * colW} y={padT} width={colW} height={chartH}
+              fill="transparent" onMouseEnter={() => setHoveredIdx(i)} onMouseLeave={() => setHoveredIdx(null)}
+              style={{ cursor: 'crosshair' }} />
+          );
+        })}
+        {hoveredIdx !== null && (
+          <line x1={toX(hoveredIdx)} y1={padT} x2={toX(hoveredIdx)} y2={padT + chartH}
+            stroke="#9CA3AF" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
+        )}
+        {hoveredIdx !== null && (
+          <circle cx={toX(hoveredIdx)} cy={toY(data[hoveredIdx].cumulative)} r={5}
+            fill="#F59E0B" stroke="white" strokeWidth={2} />
+        )}
+        {hoveredIdx !== null && (() => {
+          const d = data[hoveredIdx];
+          const cx = toX(hoveredIdx);
+          const tooltipW = 180;
+          const tooltipOnLeft = cx > padL + chartW / 2;
+          const tx = tooltipOnLeft ? cx - tooltipW - 12 : cx + 12;
+          const ty = padT + 10;
+          const typeEntries = allCarryStructTypes
+            .filter((t) => d.byStructType[t] && Math.abs(d.byStructType[t]) > 0.001)
+            .sort((a, b) => (d.byStructType[b] || 0) - (d.byStructType[a] || 0));
+          const shownTypes = typeEntries.slice(0, 5);
+          const boxH = 46 + shownTypes.length * 16;
+          return (
+            <g>
+              <rect x={tx} y={ty} width={tooltipW} height={boxH} rx={6}
+                fill="#1f2937" fillOpacity={0.95} stroke="#374151" strokeWidth={1} />
+              <text x={tx + tooltipW / 2} y={ty + 16} textAnchor="middle"
+                style={{ fontSize: 11, fontWeight: 600 }} fill="#e5e7eb">{d.date}</text>
+              <text x={tx + 10} y={ty + 32} style={{ fontSize: 10 }} fill="#9ca3af">Daily</text>
+              <text x={tx + tooltipW / 2 - 5} y={ty + 32} textAnchor="end"
+                style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }}
+                fill={d.daily >= 0 ? '#34d399' : '#fb7185'}>{d.daily > 0 ? '+' : ''}{d.daily.toFixed(2)}억</text>
+              <text x={tx + tooltipW / 2 + 5} y={ty + 32} style={{ fontSize: 10 }} fill="#9ca3af">누적</text>
+              <text x={tx + tooltipW - 10} y={ty + 32} textAnchor="end"
+                style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }} fill="#fbbf24">
+                {d.cumulative > 0 ? '+' : ''}{d.cumulative.toFixed(1)}억</text>
+              {shownTypes.map((t, ti) => (
+                <g key={ti}>
+                  <circle cx={tx + 12} cy={ty + 46 + ti * 16} r={3.5} fill={typeColorMap[t] || '#6b7280'} />
+                  <text x={tx + 22} y={ty + 50 + ti * 16} style={{ fontSize: 9 }} fill="#d1d5db">{t}</text>
+                  <text x={tx + tooltipW - 10} y={ty + 50 + ti * 16} textAnchor="end"
+                    style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace' }}
+                    fill={d.byStructType[t] >= 0 ? '#86efac' : '#fda4af'}>
+                    {d.byStructType[t] > 0 ? '+' : ''}{d.byStructType[t].toFixed(2)}</text>
+                </g>
+              ))}
+            </g>
+          );
+        })()}
+      </svg>
+
+      {/* 범례 */}
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[10px] text-gray-500 dark:text-gray-400">
+        {allCarryStructTypes.map((t) => (
+          <div key={t} className="flex items-center gap-1">
+            <div className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: typeColorMap[t] || '#6b7280' }} />
+            <span>{t}</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-1 ml-2">
+          <div className="h-0.5 w-4 bg-amber-500" />
+          <span>누적 Carry PnL</span>
         </div>
       </div>
     </div>
@@ -288,8 +579,8 @@ export function WtdPnlChart({
   data: { date: string; daily: number; cumulative: number; byStructType: Record<string, number> }[];
   allStructTypes: string[];
 }) {
-  // 서버/클라이언트 부동소수점 차이로 인한 hydration 에러 방지
   const [mounted, setMounted] = useState(false);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
@@ -490,6 +781,59 @@ export function WtdPnlChart({
             {d.date}
           </text>
         ))}
+
+        {/* 호버 인터랙션 영역 */}
+        {wtdDataWithCum.map((d, i) => {
+          const colW = chartW / n;
+          return (
+            <rect key={`hover-${i}`} x={padL + i * colW} y={padT} width={colW} height={chartH}
+              fill="transparent" onMouseEnter={() => setHoveredIdx(i)} onMouseLeave={() => setHoveredIdx(null)}
+              style={{ cursor: 'crosshair' }} />
+          );
+        })}
+        {hoveredIdx !== null && (
+          <line x1={toX(hoveredIdx)} y1={padT} x2={toX(hoveredIdx)} y2={padT + chartH}
+            stroke="#9CA3AF" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
+        )}
+        {hoveredIdx !== null && (() => {
+          const d = wtdDataWithCum[hoveredIdx];
+          const cx = toX(hoveredIdx);
+          const tooltipW = 190;
+          const tooltipOnLeft = cx > padL + chartW / 2;
+          const tx = tooltipOnLeft ? cx - tooltipW - 12 : cx + 12;
+          const ty = padT + 10;
+          const typeEntries = activeStructTypes
+            .filter((st) => d.byStructType[st] && Math.abs(d.byStructType[st]) > 0.001)
+            .sort((a, b) => (d.byStructType[b] || 0) - (d.byStructType[a] || 0));
+          const shownTypes = typeEntries.slice(0, 6);
+          const boxH = 46 + shownTypes.length * 16;
+          return (
+            <g>
+              <rect x={tx} y={ty} width={tooltipW} height={boxH} rx={6}
+                fill="#1f2937" fillOpacity={0.95} stroke="#374151" strokeWidth={1} />
+              <text x={tx + tooltipW / 2} y={ty + 16} textAnchor="middle"
+                style={{ fontSize: 11, fontWeight: 600 }} fill="#e5e7eb">{d.date}</text>
+              <text x={tx + 10} y={ty + 32} style={{ fontSize: 10 }} fill="#9ca3af">Daily</text>
+              <text x={tx + tooltipW / 2 - 5} y={ty + 32} textAnchor="end"
+                style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }}
+                fill={d.daily >= 0 ? '#34d399' : '#fb7185'}>{d.daily > 0 ? '+' : ''}{d.daily.toFixed(2)}억</text>
+              <text x={tx + tooltipW / 2 + 5} y={ty + 32} style={{ fontSize: 10 }} fill="#9ca3af">WTD</text>
+              <text x={tx + tooltipW - 10} y={ty + 32} textAnchor="end"
+                style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }} fill="#fbbf24">
+                {d.wtdCumulative > 0 ? '+' : ''}{d.wtdCumulative.toFixed(2)}억</text>
+              {shownTypes.map((st, ti) => (
+                <g key={ti}>
+                  <circle cx={tx + 12} cy={ty + 46 + ti * 16} r={3.5} fill={stColorMap[st]} />
+                  <text x={tx + 22} y={ty + 50 + ti * 16} style={{ fontSize: 9 }} fill="#d1d5db">{st}</text>
+                  <text x={tx + tooltipW - 10} y={ty + 50 + ti * 16} textAnchor="end"
+                    style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace' }}
+                    fill={d.byStructType[st] >= 0 ? '#86efac' : '#fda4af'}>
+                    {d.byStructType[st] > 0 ? '+' : ''}{d.byStructType[st].toFixed(2)}</text>
+                </g>
+              ))}
+            </g>
+          );
+        })()}
       </svg>
 
       {/* 범례 */}
@@ -526,6 +870,7 @@ export function CarryWtdPnlChart({
   allCarryStructTypes: string[];
 }) {
   const [mounted, setMounted] = useState(false);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
@@ -715,6 +1060,59 @@ export function CarryWtdPnlChart({
             {d.date}
           </text>
         ))}
+
+        {/* 호버 인터랙션 영역 */}
+        {wtdDataWithCum.map((d, i) => {
+          const colW = chartW / n;
+          return (
+            <rect key={`hover-${i}`} x={padL + i * colW} y={padT} width={colW} height={chartH}
+              fill="transparent" onMouseEnter={() => setHoveredIdx(i)} onMouseLeave={() => setHoveredIdx(null)}
+              style={{ cursor: 'crosshair' }} />
+          );
+        })}
+        {hoveredIdx !== null && (
+          <line x1={toX(hoveredIdx)} y1={padT} x2={toX(hoveredIdx)} y2={padT + chartH}
+            stroke="#9CA3AF" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
+        )}
+        {hoveredIdx !== null && (() => {
+          const d = wtdDataWithCum[hoveredIdx];
+          const cx = toX(hoveredIdx);
+          const tooltipW = 190;
+          const tooltipOnLeft = cx > padL + chartW / 2;
+          const tx = tooltipOnLeft ? cx - tooltipW - 12 : cx + 12;
+          const ty = padT + 10;
+          const typeEntries = activeStructTypes
+            .filter((st) => d.byStructType[st] && Math.abs(d.byStructType[st]) > 0.001)
+            .sort((a, b) => (d.byStructType[b] || 0) - (d.byStructType[a] || 0));
+          const shownTypes = typeEntries.slice(0, 6);
+          const boxH = 46 + shownTypes.length * 16;
+          return (
+            <g>
+              <rect x={tx} y={ty} width={tooltipW} height={boxH} rx={6}
+                fill="#1f2937" fillOpacity={0.95} stroke="#374151" strokeWidth={1} />
+              <text x={tx + tooltipW / 2} y={ty + 16} textAnchor="middle"
+                style={{ fontSize: 11, fontWeight: 600 }} fill="#e5e7eb">{d.date}</text>
+              <text x={tx + 10} y={ty + 32} style={{ fontSize: 10 }} fill="#9ca3af">Daily</text>
+              <text x={tx + tooltipW / 2 - 5} y={ty + 32} textAnchor="end"
+                style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }}
+                fill={d.daily >= 0 ? '#34d399' : '#fb7185'}>{d.daily > 0 ? '+' : ''}{d.daily.toFixed(2)}억</text>
+              <text x={tx + tooltipW / 2 + 5} y={ty + 32} style={{ fontSize: 10 }} fill="#9ca3af">WTD</text>
+              <text x={tx + tooltipW - 10} y={ty + 32} textAnchor="end"
+                style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }} fill="#fbbf24">
+                {d.wtdCumulative > 0 ? '+' : ''}{d.wtdCumulative.toFixed(2)}억</text>
+              {shownTypes.map((st, ti) => (
+                <g key={ti}>
+                  <circle cx={tx + 12} cy={ty + 46 + ti * 16} r={3.5} fill={stColorMap[st]} />
+                  <text x={tx + 22} y={ty + 50 + ti * 16} style={{ fontSize: 9 }} fill="#d1d5db">{st}</text>
+                  <text x={tx + tooltipW - 10} y={ty + 50 + ti * 16} textAnchor="end"
+                    style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace' }}
+                    fill={d.byStructType[st] >= 0 ? '#86efac' : '#fda4af'}>
+                    {d.byStructType[st] > 0 ? '+' : ''}{d.byStructType[st].toFixed(2)}</text>
+                </g>
+              ))}
+            </g>
+          );
+        })()}
       </svg>
 
       {/* 범례 */}

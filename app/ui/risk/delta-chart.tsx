@@ -48,6 +48,7 @@ function DualAxisChart({
   rateColor2?: string;
 }) {
   const [mounted, setMounted] = useState(false);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
@@ -200,6 +201,100 @@ function DualAxisChart({
         <text x={W - padR + 5} y={padT - 5} textAnchor="start" style={{ fontSize: 9 }} fill="#9CA3AF">
           금리 (%)
         </text>
+
+        {/* 호버 인터랙션 영역 (투명 rect) */}
+        {data.map((d, i) => {
+          const colW = chartW / n;
+          return (
+            <rect
+              key={`hover-${i}`}
+              x={padL + i * colW}
+              y={padT}
+              width={colW}
+              height={chartH}
+              fill="transparent"
+              onMouseEnter={() => setHoveredIdx(i)}
+              onMouseLeave={() => setHoveredIdx(null)}
+              style={{ cursor: 'crosshair' }}
+            />
+          );
+        })}
+
+        {/* 호버 시 수직 가이드라인 */}
+        {hoveredIdx !== null && (
+          <line
+            x1={toX(hoveredIdx)} y1={padT} x2={toX(hoveredIdx)} y2={padT + chartH}
+            stroke="#9CA3AF" strokeWidth={1} strokeDasharray="3 3" opacity={0.6}
+          />
+        )}
+
+        {/* 툴팁 */}
+        {hoveredIdx !== null && (() => {
+          const d = data[hoveredIdx];
+          const cx = toX(hoveredIdx);
+          // 툴팁 위치: 차트 우측 절반이면 왼쪽에, 아니면 오른쪽에 배치
+          const tooltipW = 170;
+          const tooltipOnLeft = cx > padL + chartW / 2;
+          const tx = tooltipOnLeft ? cx - tooltipW - 12 : cx + 12;
+          const ty = padT + 10;
+
+          const rate1 = d[rateKey];
+          const rate2 = rateKey2 ? d[rateKey2] : null;
+          const lines: { label: string; value: string; color: string }[] = [
+            { label: deltaLabel, value: `${d[deltaKey]}${deltaUnit}`, color: deltaColor },
+          ];
+          if (rate1 !== null) lines.push({ label: rateLabel, value: `${rate1.toFixed(3)}%`, color: rateColor });
+          if (rateKey2 && rateLabel2 && rateColor2 && rate2 !== null) {
+            lines.push({ label: rateLabel2, value: `${rate2.toFixed(3)}%`, color: rateColor2 });
+          }
+          const boxH = 24 + lines.length * 18;
+
+          return (
+            <g>
+              {/* 배경 */}
+              <rect x={tx} y={ty} width={tooltipW} height={boxH} rx={6}
+                fill="#1f2937" fillOpacity={0.95} stroke="#374151" strokeWidth={1} />
+              {/* 날짜 */}
+              <text x={tx + tooltipW / 2} y={ty + 16} textAnchor="middle"
+                style={{ fontSize: 11, fontWeight: 600 }} fill="#e5e7eb">
+                {d.date}
+              </text>
+              {/* 값들 */}
+              {lines.map((line, li) => (
+                <g key={li}>
+                  <circle cx={tx + 12} cy={ty + 30 + li * 18} r={4} fill={line.color} />
+                  <text x={tx + 22} y={ty + 34 + li * 18}
+                    style={{ fontSize: 10 }} fill="#d1d5db">
+                    {line.label}
+                  </text>
+                  <text x={tx + tooltipW - 10} y={ty + 34 + li * 18} textAnchor="end"
+                    style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }} fill="#f9fafb">
+                    {line.value}
+                  </text>
+                </g>
+              ))}
+            </g>
+          );
+        })()}
+
+        {/* 호버 시 금리 라인 위 강조 점 */}
+        {hoveredIdx !== null && (() => {
+          const d = data[hoveredIdx];
+          const dots = [];
+          if (d[rateKey] !== null) {
+            dots.push(
+              <circle key="h-r1" cx={toX(hoveredIdx)} cy={toRY(d[rateKey] as number)} r={5}
+                fill={rateColor} stroke="white" strokeWidth={2} />
+            );
+          }
+          if (rateKey2 && d[rateKey2] !== null) {
+            dots.push(
+              <circle key="h-r2" cx={toX(hoveredIdx)} cy={toRY(d[rateKey2] as number)} r={5}
+                fill={rateColor2} stroke="white" strokeWidth={2} />
+            );
+          }
+          return <>{dots}</>;
+        })()}
       </svg>
 
       {/* 범례 */}

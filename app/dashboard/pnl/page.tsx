@@ -3,6 +3,7 @@ import { lusitana } from '@/app/ui/fonts';
 import { Suspense } from 'react';
 import {
   PnlTrendChart,
+  CarryYtdPnlChart,
   WtdPnlChart,
   CarryWtdPnlChart,
   TypePnlTable,
@@ -173,6 +174,17 @@ async function PnlDashboardContent({ pnlDate }: { pnlDate?: string }) {
           </span>
         </h2>
         <PnlTrendChart data={slicedTrend} allTypes={allTypes} />
+      </div>
+
+      {/* YTD Carry PnL 추이 차트 */}
+      <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+        <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
+          YTD Carry PnL 추이
+          <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+            (캐리 스왑 일별 PnL + 누적, 억 단위)
+          </span>
+        </h2>
+        <CarryYtdPnlChart data={slicedCarryTrend} allCarryStructTypes={allCarryStructTypes} />
       </div>
 
       {/* WTD PnL 추이 차트 */}

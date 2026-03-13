@@ -1846,9 +1846,10 @@ export function computePnlSummaryCards(
   mtdPnl: number;
   ytdPnl: number;
   carryPnl: number;
+  ytdCarryPnl: number;
 } {
   if (trend.length === 0) {
-    return { dailyPnl: 0, mtdPnl: 0, ytdPnl: 0, carryPnl: 0 };
+    return { dailyPnl: 0, mtdPnl: 0, ytdPnl: 0, carryPnl: 0, ytdCarryPnl: 0 };
   }
 
   // targetDate까지 슬라이스
@@ -1880,11 +1881,17 @@ export function computePnlSummaryCards(
     ? slicedCarry[slicedCarry.length - 1].daily
     : 0;
 
+  // YTD Carry PnL: 캐리 스왑 누적 PnL (억 단위)
+  const ytdCarryPnl = slicedCarry.length > 0
+    ? slicedCarry[slicedCarry.length - 1].cumulative
+    : 0;
+
   return {
     dailyPnl: Math.round(dailyPnl * 100) / 100,
     mtdPnl: Math.round(mtdPnl * 100) / 100,
     ytdPnl: Math.round(ytdPnl * 100) / 100,
     carryPnl: Math.round(carryPnl * 100) / 100,
+    ytdCarryPnl: Math.round(ytdCarryPnl * 100) / 100,
   };
 }
 
