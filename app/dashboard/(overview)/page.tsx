@@ -70,8 +70,8 @@ export default async function Page({
   const selectedMMDD = selectedTrend?.date || '';
   const pnlCards = computePnlSummaryCards(pnlTrend.trend, pnlTrend.carryTrend, selectedMMDD);
 
-  // YTD MTM 괴리 = YTD PnL - YTD Carry PnL
-  const ytdMtmGap = pnlCards.ytdPnl - pnlCards.ytdCarryPnl;
+  // YTD 헤지 불일치 = YTD PnL - YTD Carry PnL (자산-MTM 스왑 간 잔여 괴리)
+  const ytdHedgeMismatch = pnlCards.ytdPnl - pnlCards.ytdCarryPnl;
 
   // PnL by type (선택 날짜 기준으로 fetch)
   const pnlByType = await fetchPnlSummaryByTypeAllFunds(currentDate || undefined);
@@ -176,8 +176,8 @@ export default async function Page({
             />
             <PnlCard label="YTD Carry PnL" value={pnlCards.ytdCarryPnl} unit="억" />
             <PnlCard
-              label="YTD MTM 괴리"
-              value={Math.round(ytdMtmGap * 100) / 100}
+              label="YTD 헤지 불일치"
+              value={Math.round(ytdHedgeMismatch * 100) / 100}
               unit="억"
               gapCard
             />
@@ -305,10 +305,11 @@ export default async function Page({
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="font-semibold text-gray-700 dark:text-gray-200">
-                  괴리 분석 (자산 + MTM)
+                  MTM 헤지 불일치 현황
                 </h2>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                  유형별 괴리 절대값과 변동 방향 · 버블 클릭 시 추이 확인
+                  유형별 자산-MTM 스왑 간 헤지 잔여 괴리 · 버블 클릭 시 추이
+                  확인
                 </p>
               </div>
               {gapAnalysis.stdDt && (

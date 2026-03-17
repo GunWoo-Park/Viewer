@@ -261,7 +261,7 @@ export default function StrucprdpTable({
               <th className="px-3 py-3 whitespace-nowrap">OBJ_CD</th>
               <th className="px-3 py-3 whitespace-nowrap">거래상대방</th>
               <th className="px-3 py-3 whitespace-nowrap">자산/부채</th>
-              <th className="px-3 py-3 whitespace-nowrap">TP</th>
+              <th className="px-3 py-3 whitespace-nowrap">스왑 유형</th>
               <th className="px-3 py-3 whitespace-nowrap">통화</th>
               <th className="px-3 py-3 whitespace-nowrap text-right">명목금액</th>
               <th className="px-3 py-3 whitespace-nowrap">수수료</th>
@@ -413,7 +413,15 @@ function AssetBadge({ value }: { value: string }) {
   );
 }
 
-// TP 뱃지
+// 스왑 유형 뱃지 — DB tp 값을 직관적 라벨로 매핑
+// 자산: 실질 수익 포지션(원천), MTM: 자산스왑 MTM 변동성 헤지, 캐리: 자산스왑 캐리의 연속 PnL 인식
+const TP_DISPLAY: Record<string, string> = {
+  자산: '자산(원천)',
+  MTM: 'MTM헤지',
+  캐리: '캐리연속',
+  자체발행: '자체발행',
+};
+
 function TpBadge({ value }: { value: string }) {
   if (!value) return <span className="text-gray-300 dark:text-gray-600">-</span>;
 
@@ -425,10 +433,11 @@ function TpBadge({ value }: { value: string }) {
   };
 
   const color = colorMap[value] || 'bg-gray-50 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
+  const label = TP_DISPLAY[value] || value;
 
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${color}`}>
-      {value}
+      {label}
     </span>
   );
 }

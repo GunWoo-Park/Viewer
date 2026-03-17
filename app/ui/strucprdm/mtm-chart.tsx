@@ -2,14 +2,22 @@
 
 import { MTMGroupData } from '@/app/lib/definitions';
 
-// TP별 라인 색상
+// 스왑 유형별 라인 색상
 const TP_COLORS: Record<string, string> = {
-  자산: '#3b82f6',    // blue
-  MTM: '#ef4444',     // red
-  캐리: '#10b981',    // emerald
+  자산: '#3b82f6',    // blue - 자산(원천): 실질 수익 포지션
+  MTM: '#ef4444',     // red - MTM헤지: 자산 MTM 변동성 상쇄
+  캐리: '#10b981',    // emerald - 캐리연속: 자산 캐리의 연속 PnL 인식
   자체발행: '#f59e0b', // amber
 };
 const COMBINED_COLOR = '#6366f1'; // indigo - 통합 PnL 라인
+
+// DB tp 값 → 직관적 라벨 매핑
+const TP_DISPLAY: Record<string, string> = {
+  자산: '자산(원천)',
+  MTM: 'MTM헤지',
+  캐리: '캐리연속',
+  자체발행: '자체발행',
+};
 
 function formatMtmAxis(v: number): string {
   const b = v / 100000000;
@@ -37,7 +45,7 @@ export default function MTMTimeSeriesChart({ data }: { data: MTMGroupData }) {
   // tp별 그룹 라인 (자산, MTM, 캐리) + 통합 PnL
   const series = [
     ...data.products.map((p) => ({
-      label: `${p.tp} (${p.cntr_nm})`,
+      label: `${TP_DISPLAY[p.tp] || p.tp} (${p.cntr_nm})`,
       data: p.mtm_data,
       color: TP_COLORS[p.tp] || '#9ca3af',
       strokeWidth: 1.5,

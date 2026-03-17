@@ -5,12 +5,20 @@ import { XMarkIcon } from '@heroicons/react/24/outline';
 import { MTMGroupData } from '@/app/lib/definitions';
 import MTMTimeSeriesChart from './mtm-chart';
 
-// TP 뱃지 색상
+// 스왑 유형 뱃지 색상
 const TP_BADGE: Record<string, string> = {
   자산: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
   MTM: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
   캐리: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300',
   자체발행: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900 dark:text-fuchsia-300',
+};
+
+// DB tp 값 → 직관적 라벨 매핑
+const TP_DISPLAY: Record<string, string> = {
+  자산: '자산(원천)',
+  MTM: 'MTM헤지',
+  캐리: '캐리연속',
+  자체발행: '자체발행',
 };
 
 function formatDate(dt: string): string {
@@ -246,7 +254,7 @@ export default function MTMModal({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
-                        <th className="py-2 px-3 text-left font-medium">TP</th>
+                        <th className="py-2 px-3 text-left font-medium">스왑 유형</th>
                         <th className="py-2 px-3 text-left font-medium">종목</th>
                         <th className="py-2 px-3 text-right font-medium">
                           명목금액
@@ -274,7 +282,7 @@ export default function MTMModal({
                                   'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
                                 }`}
                               >
-                                {p.tp}
+                                {TP_DISPLAY[p.tp] || p.tp}
                               </span>
                             </td>
                             <td className="py-2 px-3 font-mono text-xs text-gray-600 dark:text-gray-400 max-w-[200px] truncate" title={p.obj_cd}>
