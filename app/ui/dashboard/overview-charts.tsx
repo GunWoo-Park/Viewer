@@ -97,7 +97,7 @@ export function WeeklyTypePnlChart({
     const W = rect.width;
     const H = rect.height;
 
-    const ml = 44, mr = 12, mt = 10, mb = 28;
+    const ml = 44, mr = 20, mt = 24, mb = 28;
     const pw = W - ml - mr;
     const ph = H - mt - mb;
 
@@ -184,12 +184,13 @@ export function WeeklyTypePnlChart({
       ctx.beginPath();
       ctx.arc(cx, dy, 3, 0, Math.PI * 2);
       ctx.fill();
-      // 값 레이블
+      // 값 레이블 (캔버스 밖으로 나가지 않도록 클램핑)
       ctx.fillStyle = '#fde047'; // yellow-300
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
-      const labelY = d.daily >= 0 ? dy - 8 : dy + 14;
-      ctx.fillText(`${d.daily > 0 ? '+' : ''}${fmtEok(d.daily)}`, cx, labelY);
+      const rawLabelY = d.daily >= 0 ? dy - 8 : dy + 14;
+      const labelY = Math.max(10, Math.min(rawLabelY, H - 4));
+      ctx.fillText(`${d.daily > 0 ? '+' : ''}${fmtEok(d.daily)}`, Math.min(cx, W - mr - 10), labelY);
     });
 
     // Y축 레이블
@@ -216,7 +217,7 @@ export function WeeklyTypePnlChart({
     if (!canvas || data.length === 0) return;
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
-    const ml = 44, mr = 12;
+    const ml = 44, mr = 20;
     const pw = rect.width - ml - mr;
     const gap = pw / data.length;
     const idx = Math.floor((mx - ml) / gap);
