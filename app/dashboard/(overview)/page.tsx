@@ -9,11 +9,13 @@ import {
   computePnlSummaryCards,
   fetchPnlSummaryByTypeAllFunds,
   fetchRiskDelta,
+  fetchGapAnalysis,
 } from '@/app/lib/data';
 import {
   WeeklyTypePnlChart,
   DeltaGaugeBar,
 } from '@/app/ui/dashboard/overview-charts';
+import { GapBubbleChart } from '@/app/ui/dashboard/gap-bubble-chart';
 import { DateSelector } from '@/app/ui/dashboard/date-selector';
 
 // 억 포맷
@@ -42,11 +44,12 @@ export default async function Page({
 }) {
   const selectedDate = searchParams?.date || '';
 
-  const [summary, carry, pnlTrend, riskDelta] = await Promise.all([
+  const [summary, carry, pnlTrend, riskDelta, gapAnalysis] = await Promise.all([
     fetchStrucprdpSummary(),
     fetchWeightedAvgCarry(),
     fetchPnlTrend(),
     fetchRiskDelta(),
+    fetchGapAnalysis(selectedDate || undefined),
   ]);
 
   // 사용 가능한 날짜 목록 (최신순, YYYYMMDD)
@@ -66,6 +69,9 @@ export default async function Page({
   // PnL 요약 카드: 선택 날짜까지 슬라이스
   const selectedMMDD = selectedTrend?.date || '';
   const pnlCards = computePnlSummaryCards(pnlTrend.trend, pnlTrend.carryTrend, selectedMMDD);
+
+  // YTD MTM 괴리 = YTD PnL - YTD Carry PnL
+  const ytdMtmGap = pnlCards.ytdPnl - pnlCards.ytdCarryPnl;
 
   // PnL by type (선택 날짜 기준으로 fetch)
   const pnlByType = await fetchPnlSummaryByTypeAllFunds(currentDate || undefined);
@@ -169,6 +175,12 @@ export default async function Page({
               unit="억"
             />
             <PnlCard label="YTD Carry PnL" value={pnlCards.ytdCarryPnl} unit="억" />
+            <PnlCard
+              label="YTD MTM 괴리"
+              value={Math.round(ytdMtmGap * 100) / 100}
+              unit="억"
+              gapCard
+            />
           </div>
 
           {/* 우측: 1주일 struct_type별 PnL Stacked Bar */}
@@ -286,7 +298,31 @@ export default async function Page({
         })()}
       </section>
 
-      {/* ===== 3. Risk Delta ===== */}
+      {/* ===== 3. 괴리(자산+MTM) 버블 차트 ===== */}
+      {gapAnalysis.data.length > 0 && (
+        <section className="mb-6">
+          <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="font-semibold text-gray-700 dark:text-gray-200">
+                  괴리 분석 (자산 + MTM)
+                </h2>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                  유형별 괴리 절대값과 변동 방향 · 버블 클릭 시 추이 확인
+                </p>
+              </div>
+              {gapAnalysis.stdDt && (
+                <span className="text-xs font-mono text-gray-400 dark:text-gray-500">
+                  {gapAnalysis.stdDt.slice(0, 4)}-{gapAnalysis.stdDt.slice(4, 6)}-{gapAnalysis.stdDt.slice(6, 8)}
+                </span>
+              )}
+            </div>
+            <GapBubbleChart data={gapAnalysis.data} trend={gapAnalysis.trend} />
+          </div>
+        </section>
+      )}
+
+      {/* ===== 4. Risk Delta ===== */}
       <section className="mb-6">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
           Risk — Hedge Net Delta · PnL
@@ -369,21 +405,33 @@ function PnlCard({
   value,
   unit,
   highlight = false,
+  gapCard = false,
 }: {
   label: string;
   value: number;
   unit: string;
   highlight?: boolean;
+  gapCard?: boolean;
 }) {
-  const color = pnlColor(value * 100000000);
+  const color = gapCard
+    ? (value > 0
+      ? 'text-amber-600 dark:text-amber-400'
+      : value < 0
+        ? 'text-sky-600 dark:text-sky-400'
+        : 'text-gray-500')
+    : pnlColor(value * 100000000);
   const sign = value > 0 ? '+' : value < 0 ? '' : '';
   return (
     <div className={`rounded-xl border p-3 shadow-sm ${
-      highlight
-        ? 'border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30'
-        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
+      gapCard
+        ? 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 col-span-2'
+        : highlight
+          ? 'border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30'
+          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
     }`}>
-      <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">{label}</p>
+      <p className={`text-[10px] mb-0.5 ${
+        gapCard ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-gray-500 dark:text-gray-400'
+      }`}>{label}</p>
       <p className={`${lusitana.className} text-lg font-bold ${color}`}>
         {sign}{value.toFixed(2)}{unit}
       </p>

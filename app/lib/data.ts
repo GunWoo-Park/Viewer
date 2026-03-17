@@ -2094,3 +2094,128 @@ export async function fetchPnlrtpDetail(): Promise<{
     return { rows: [], stdDt: '' };
   }
 }
+
+// ========== 괴리(자산+MTM) 분석 ==========
+
+export type GapDataPoint = {
+  structType: string;
+  curr: string;
+  productCount: number;
+  gap: number;        // 자산+MTM 합계 (원 단위)
+  asset: number;      // 자산 합계
+  mtm: number;        // MTM 합계
+  gapEok: number;     // 억 단위 변환
+  prevGapEok: number; // 전일 괴리 (억)
+  change: number;     // 일일 변동 (억)
+};
+
+export type GapTrendPoint = {
+  date: string;
+  structType: string;
+  curr: string;
+  gapEok: number;
+};
+
+/**
+ * struct_type별 괴리(자산+MTM) 현황 + 전일 대비 변동
+ * 요약 탭 버블 차트용
+ */
+export async function fetchGapAnalysis(targetDate?: string): Promise<{
+  data: GapDataPoint[];
+  trend: GapTrendPoint[];
+  stdDt: string;
+}> {
+  try {
+    // 최신 10일 날짜 가져오기
+    const datesRes = targetDate
+      ? await sql`SELECT DISTINCT std_dt FROM breakdownprc WHERE std_dt <= ${targetDate} ORDER BY std_dt DESC LIMIT 10`
+      : await sql`SELECT DISTINCT std_dt FROM breakdownprc ORDER BY std_dt DESC LIMIT 10`;
+    if (datesRes.rows.length === 0) return { data: [], trend: [], stdDt: '' };
+
+    const latestDt = datesRes.rows[0].std_dt as string;
+    const prevDt = datesRes.rows.length > 1 ? (datesRes.rows[1].std_dt as string) : null;
+    const trendDates = datesRes.rows.map((r: any) => r.std_dt as string);
+
+    // 최신일 struct_type별 괴리
+    const gapRes = await sql`
+      SELECT
+        CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) as struct_type,
+        s.curr,
+        COUNT(DISTINCT b.obj_cd) as product_cnt,
+        SUM(CASE WHEN b.tp IN ('자산','MTM') THEN b.avg_prc ELSE 0 END) as gap,
+        SUM(CASE WHEN b.tp = '자산' THEN b.avg_prc ELSE 0 END) as asset,
+        SUM(CASE WHEN b.tp = 'MTM' THEN b.avg_prc ELSE 0 END) as mtm
+      FROM breakdownprc b
+      JOIN strucprdp s ON b.obj_cd = s.obj_cd AND s.tp != '자체발행'
+      WHERE b.std_dt = ${latestDt}
+        AND (s.call_yn = 'N' OR s.call_yn IS NULL)
+      GROUP BY struct_type, s.curr
+      ORDER BY ABS(SUM(CASE WHEN b.tp IN ('자산','MTM') THEN b.avg_prc ELSE 0 END)) DESC
+    `;
+
+    // 전일 struct_type별 괴리 (변동 계산용)
+    let prevGapMap: Record<string, number> = {};
+    if (prevDt) {
+      const prevRes = await sql`
+        SELECT
+          CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) as struct_type,
+          s.curr,
+          SUM(CASE WHEN b.tp IN ('자산','MTM') THEN b.avg_prc ELSE 0 END) as gap
+        FROM breakdownprc b
+        JOIN strucprdp s ON b.obj_cd = s.obj_cd AND s.tp != '자체발행'
+        WHERE b.std_dt = ${prevDt}
+          AND (s.call_yn = 'N' OR s.call_yn IS NULL)
+        GROUP BY struct_type, s.curr
+      `;
+      for (const r of prevRes.rows) {
+        prevGapMap[`${r.struct_type}|${r.curr}`] = Number(r.gap) / 100000000;
+      }
+    }
+
+    const data: GapDataPoint[] = gapRes.rows.map((r: any) => {
+      const gapEok = Number(r.gap) / 100000000;
+      const key = `${r.struct_type}|${r.curr}`;
+      const prevGapEok = prevGapMap[key] ?? gapEok;
+      return {
+        structType: r.struct_type,
+        curr: r.curr,
+        productCount: Number(r.product_cnt),
+        gap: Number(r.gap),
+        asset: Number(r.asset),
+        mtm: Number(r.mtm),
+        gapEok: Math.round(gapEok * 10) / 10,
+        prevGapEok: Math.round(prevGapEok * 10) / 10,
+        change: Math.round((gapEok - prevGapEok) * 10) / 10,
+      };
+    });
+
+    // 최근 10일 추이 데이터: 최소~최대 날짜 범위로 조회
+    const minDt = trendDates[trendDates.length - 1];
+    const maxDt = trendDates[0];
+    const trendRes = await sql`
+      SELECT
+        b.std_dt,
+        CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) as struct_type,
+        s.curr,
+        SUM(CASE WHEN b.tp IN ('자산','MTM') THEN b.avg_prc ELSE 0 END) as gap
+      FROM breakdownprc b
+      JOIN strucprdp s ON b.obj_cd = s.obj_cd AND s.tp != '자체발행'
+      WHERE b.std_dt >= ${minDt} AND b.std_dt <= ${maxDt}
+        AND (s.call_yn = 'N' OR s.call_yn IS NULL)
+      GROUP BY b.std_dt, struct_type, s.curr
+      ORDER BY b.std_dt
+    `;
+
+    const trend: GapTrendPoint[] = trendRes.rows.map((r: any) => ({
+      date: r.std_dt,
+      structType: r.struct_type,
+      curr: r.curr,
+      gapEok: Math.round(Number(r.gap) / 100000000 * 10) / 10,
+    }));
+
+    return { data, trend, stdDt: latestDt };
+  } catch (error) {
+    console.error('fetchGapAnalysis Error:', error);
+    return { data: [], trend: [], stdDt: '' };
+  }
+}
