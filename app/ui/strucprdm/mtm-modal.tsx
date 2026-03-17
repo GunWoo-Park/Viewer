@@ -100,18 +100,23 @@ export default function MTMModal({
       ? '자산→MTM→캐리'
       : '자산→MTM';
 
-  // 최근 통합 MTM
+  // 최근 통합 PnL (가격+쿠폰)
   const latestCombined =
     data && data.combined_mtm.length > 0
       ? data.combined_mtm[data.combined_mtm.length - 1].avg_prc
       : 0;
 
-  // 전일 통합 MTM
+  // 전일 통합 PnL
   const prevCombined =
     data && data.combined_mtm.length > 1
       ? data.combined_mtm[data.combined_mtm.length - 2].avg_prc
       : 0;
   const dailyChange = latestCombined - prevCombined;
+
+  // 누적 쿠폰 합계
+  const totalCoupon = data
+    ? (data.coupon_events || []).reduce((s, e) => s + e.amt, 0)
+    : 0;
 
   return (
     <div
@@ -126,7 +131,7 @@ export default function MTMModal({
         <div className="sticky top-0 z-10 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
-              MTM 시계열
+              PnL 시계열
             </h2>
             <div className="flex items-center gap-3 mt-1">
               <span className="text-sm text-gray-500 dark:text-gray-400">
@@ -174,11 +179,11 @@ export default function MTMModal({
 
           {data && !loading && (
             <>
-              {/* 통합 MTM 요약 */}
-              <div className="mb-6 grid grid-cols-3 gap-4">
+              {/* PnL 요약 카드 */}
+              <div className="mb-6 grid grid-cols-4 gap-4">
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3">
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
-                    통합 MTM (최근)
+                    통합 PnL (최근)
                   </p>
                   <p
                     className={`text-lg font-bold font-mono ${mtmColor(latestCombined)}`}
@@ -194,6 +199,16 @@ export default function MTMModal({
                     className={`text-lg font-bold font-mono ${mtmColor(dailyChange)}`}
                   >
                     {fmtMtm(dailyChange)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3">
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
+                    누적 쿠폰
+                  </p>
+                  <p
+                    className={`text-lg font-bold font-mono ${mtmColor(totalCoupon)}`}
+                  >
+                    {fmtMtm(totalCoupon)}
                   </p>
                 </div>
                 <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3">
@@ -242,7 +257,7 @@ export default function MTMModal({
                           명목금액
                         </th>
                         <th className="py-2 px-3 text-right font-medium">
-                          최근 MTM
+                          최근 PnL
                         </th>
                       </tr>
                     </thead>
@@ -290,6 +305,50 @@ export default function MTMModal({
                   </table>
                 </div>
               </div>
+
+              {/* 쿠폰 이벤트 */}
+              {data.coupon_events && data.coupon_events.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                    쿠폰 내역
+                  </h3>
+                  <div className="overflow-x-auto max-h-48 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-white dark:bg-gray-800">
+                        <tr className="border-b border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
+                          <th className="py-2 px-3 text-left font-medium">지급일</th>
+                          <th className="py-2 px-3 text-left font-medium">종목</th>
+                          <th className="py-2 px-3 text-left font-medium">유형</th>
+                          <th className="py-2 px-3 text-right font-medium">금액</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...data.coupon_events]
+                          .sort((a, b) => b.pay_dt.localeCompare(a.pay_dt))
+                          .map((e, i) => (
+                          <tr
+                            key={`${e.pay_dt}-${e.obj_cd}-${i}`}
+                            className="border-b border-gray-100 dark:border-gray-800"
+                          >
+                            <td className="py-1.5 px-3 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              {formatDate(e.pay_dt)}
+                            </td>
+                            <td className="py-1.5 px-3 font-mono text-xs text-blue-700 dark:text-blue-400">
+                              {e.obj_cd}
+                            </td>
+                            <td className="py-1.5 px-3 text-xs text-gray-500 dark:text-gray-400">
+                              {e.tp}
+                            </td>
+                            <td className={`py-1.5 px-3 text-right font-mono text-xs font-medium ${mtmColor(e.amt)}`}>
+                              {fmtMtm(e.amt)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

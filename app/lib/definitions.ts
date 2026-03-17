@@ -194,7 +194,7 @@ export type StrucprdpSummary = {
   }[];
 };
 
-// MTM 시계열 모달용 타입
+// PnL 시계열 모달용 타입 (breakdownprc + excpnp 기반)
 export type MTMTimeSeries = {
   obj_cd: string;
   tp: string;
@@ -208,6 +208,8 @@ export type MTMGroupData = {
   curr: string;
   products: MTMTimeSeries[];
   combined_mtm: { std_dt: string; avg_prc: number }[];
+  // 쿠폰 이벤트 (excpnp)
+  coupon_events: { pay_dt: string; obj_cd: string; tp: string; amt: number }[];
 };
 
 // --- PnL 관련 타입 ---

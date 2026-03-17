@@ -9,7 +9,7 @@ const TP_COLORS: Record<string, string> = {
   캐리: '#10b981',    // emerald
   자체발행: '#f59e0b', // amber
 };
-const COMBINED_COLOR = '#6366f1'; // indigo - 통합 라인
+const COMBINED_COLOR = '#6366f1'; // indigo - 통합 PnL 라인
 
 function formatMtmAxis(v: number): string {
   const b = v / 100000000;
@@ -30,17 +30,10 @@ export default function MTMTimeSeriesChart({ data }: { data: MTMGroupData }) {
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
 
-  // 시리즈 구성: 개별 종목 + 통합
+  // 통합 PnL 라인만 표시
   const series = [
-    ...data.products.map((p) => ({
-      label: `${p.tp} (${p.obj_cd.slice(-6)})`,
-      data: p.mtm_data,
-      color: TP_COLORS[p.tp] || '#9ca3af',
-      strokeWidth: 1.5,
-      opacity: 0.75,
-    })),
     {
-      label: '통합 MTM',
+      label: '통합 PnL (가격+쿠폰)',
       data: data.combined_mtm,
       color: COMBINED_COLOR,
       strokeWidth: 2.5,
@@ -53,7 +46,7 @@ export default function MTMTimeSeriesChart({ data }: { data: MTMGroupData }) {
   if (allValues.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-sm text-gray-400 dark:text-gray-500">
-        MTM 데이터 없음
+        PnL 데이터 없음
       </div>
     );
   }
