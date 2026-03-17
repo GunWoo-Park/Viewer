@@ -317,7 +317,7 @@ export default async function Page({
                 </span>
               )}
             </div>
-            <GapBubbleChart data={gapAnalysis.data} trend={gapAnalysis.trend} />
+            <GapBubbleChart data={gapAnalysis.data} trend={gapAnalysis.trend} details={gapAnalysis.details} />
           </div>
         </section>
       )}

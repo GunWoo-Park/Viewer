@@ -2117,6 +2117,16 @@ export type GapTrendPoint = {
   gapEok: number;
 };
 
+// 개별 종목별 괴리 (상위 N개 표시용)
+export type GapProductDetail = {
+  objCd: string;
+  fndNm: string;     // 종목명
+  structType: string;
+  curr: string;
+  gapEok: number;    // 괴리 (억)
+  notionalEok: number; // 잔액 (억)
+};
+
 /**
  * struct_type별 괴리(자산+MTM) 현황 + 전일 대비 변동
  * 요약 탭 버블 차트용
@@ -2124,6 +2134,7 @@ export type GapTrendPoint = {
 export async function fetchGapAnalysis(targetDate?: string): Promise<{
   data: GapDataPoint[];
   trend: GapTrendPoint[];
+  details: GapProductDetail[];
   stdDt: string;
 }> {
   try {
@@ -2253,9 +2264,42 @@ export async function fetchGapAnalysis(targetDate?: string): Promise<{
       gapEok: Math.round(Number(r.gap) / 100000000 * 10) / 10,
     }));
 
-    return { data, trend, stdDt: latestDt };
+    // 개별 종목별 괴리 (사이드 패널 상위 3개 표시용)
+    const detailRes = await sql`
+      SELECT
+        b.obj_cd,
+        s.fnd_nm,
+        CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) as struct_type,
+        s.curr,
+        s.notn,
+        SUM(CASE WHEN b.tp IN ('자산','MTM') THEN b.avg_prc ELSE 0 END) as gap
+      FROM breakdownprc b
+      JOIN strucprdp s ON b.obj_cd = s.obj_cd AND s.tp = '자산'
+      WHERE b.std_dt = ${latestDt}
+        AND (s.call_yn = 'N' OR s.call_yn IS NULL)
+      GROUP BY b.obj_cd, s.fnd_nm, struct_type, s.curr, s.notn
+      ORDER BY ABS(SUM(CASE WHEN b.tp IN ('자산','MTM') THEN b.avg_prc ELSE 0 END)) DESC
+    `;
+
+    const details: GapProductDetail[] = detailRes.rows.map((r: any) => {
+      const curr = r.curr as string;
+      const rawNotn = Number(r.notn);
+      const notionalKrw = curr === 'USD'
+        ? rawNotn * (marRates[String(r.obj_cd)] || defaultFxRate)
+        : rawNotn;
+      return {
+        objCd: String(r.obj_cd),
+        fndNm: String(r.fnd_nm || r.obj_cd),
+        structType: r.struct_type,
+        curr,
+        gapEok: Math.round(Number(r.gap) / 100000000 * 10) / 10,
+        notionalEok: Math.round(notionalKrw / 100000000 * 10) / 10,
+      };
+    });
+
+    return { data, trend, details, stdDt: latestDt };
   } catch (error) {
     console.error('fetchGapAnalysis Error:', error);
-    return { data: [], trend: [], stdDt: '' };
+    return { data: [], trend: [], details: [], stdDt: '' };
   }
 }

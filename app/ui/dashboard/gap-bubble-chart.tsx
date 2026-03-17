@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import type { GapDataPoint, GapTrendPoint } from '@/app/lib/data';
+import type { GapDataPoint, GapTrendPoint, GapProductDetail } from '@/app/lib/data';
 
 // 유형별 고정 색상
 const TYPE_COLORS: Record<string, string> = {
@@ -35,9 +35,11 @@ function wonLabel(s: string): string {
 export function GapBubbleChart({
   data,
   trend,
+  details = [],
 }: {
   data: GapDataPoint[];
   trend: GapTrendPoint[];
+  details?: GapProductDetail[];
 }) {
   const [mounted, setMounted] = useState(false);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
@@ -329,24 +331,72 @@ export function GapBubbleChart({
           </svg>
         </div>
 
-        {/* 선택 시 추이 미니 차트 */}
-        {selectedItem && selectedTrend.length > 1 && (
-          <div className="w-64 flex-shrink-0 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
-            <div className="mb-2">
-              <p className="text-xs font-bold text-gray-700 dark:text-gray-200 truncate">
-                {wonLabel(selectedItem.structType)}
-              </p>
-              <p className="text-[10px] text-gray-400">{selectedItem.curr} · 추이</p>
+        {/* 선택 시 추이 미니 차트 + 상위 종목 */}
+        {selectedItem && selectedTrend.length > 1 && (() => {
+          // 해당 struct_type의 개별 종목 괴리 상위 3개
+          const topProducts = details
+            .filter((d) => d.structType === selectedItem.structType && d.curr === selectedItem.curr)
+            .sort((a, b) => Math.abs(b.gapEok) - Math.abs(a.gapEok))
+            .slice(0, 3);
+
+          return (
+            <div className="w-64 flex-shrink-0 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+              <div className="mb-2">
+                <p className="text-xs font-bold text-gray-700 dark:text-gray-200 truncate">
+                  {wonLabel(selectedItem.structType)}
+                </p>
+                <p className="text-[10px] text-gray-400">{selectedItem.curr} · 추이</p>
+              </div>
+              <TrendMiniChart data={selectedTrend} color={getColor(selectedItem.structType)} />
+
+              {/* 괴리 상위 3개 종목 */}
+              {topProducts.length > 0 && (
+                <div className="mt-3 border-t border-gray-200 dark:border-gray-700 pt-3">
+                  <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                    괴리 상위 {topProducts.length}개 종목
+                  </p>
+                  <div className="space-y-2">
+                    {topProducts.map((p, i) => {
+                      const isPos = p.gapEok >= 0;
+                      const barMax = Math.max(...topProducts.map((t) => Math.abs(t.gapEok)), 1);
+                      const barPct = (Math.abs(p.gapEok) / barMax) * 100;
+                      return (
+                        <div key={p.objCd} className="text-[10px]">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-gray-600 dark:text-gray-300 truncate max-w-[140px]" title={p.fndNm}>
+                              {i + 1}. {wonLabel(p.fndNm)}
+                            </span>
+                            <span className={`font-mono font-bold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {p.gapEok > 0 ? '+' : ''}{p.gapEok.toFixed(1)}억
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${isPos ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                                style={{ width: `${barPct}%` }}
+                              />
+                            </div>
+                            <span className="text-[9px] text-gray-400 whitespace-nowrap">
+                              {p.notionalEok.toFixed(0)}억
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={() => setSelectedIdx(null)}
+                className="mt-2 w-full text-center text-[10px] text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                닫기 ✕
+              </button>
             </div>
-            <TrendMiniChart data={selectedTrend} color={getColor(selectedItem.structType)} />
-            <button
-              onClick={() => setSelectedIdx(null)}
-              className="mt-2 w-full text-center text-[10px] text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              닫기 ✕
-            </button>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* 범례: 버블 크기 설명 */}
