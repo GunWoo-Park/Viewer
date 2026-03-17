@@ -13,8 +13,12 @@ const COMBINED_COLOR = '#6366f1'; // indigo - 통합 PnL 라인
 
 function formatMtmAxis(v: number): string {
   const b = v / 100000000;
-  if (Math.abs(b) >= 1) return `${b.toFixed(0)}억`;
-  return `${(v / 10000).toFixed(0)}만`;
+  if (Math.abs(b) >= 10) return `${b.toFixed(0)}억`;
+  if (Math.abs(b) >= 1) return `${b.toFixed(1)}억`;
+  if (Math.abs(b) >= 0.1) return `${b.toFixed(2)}억`;
+  const man = v / 10000;
+  if (Math.abs(man) >= 1) return `${man.toFixed(0)}만`;
+  return `${v.toFixed(0)}`;
 }
 
 function formatDateLabel(dt: string): string {
@@ -30,8 +34,15 @@ export default function MTMTimeSeriesChart({ data }: { data: MTMGroupData }) {
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
 
-  // 통합 PnL 라인만 표시
+  // tp별 그룹 라인 (자산, MTM, 캐리) + 통합 PnL
   const series = [
+    ...data.products.map((p) => ({
+      label: `${p.tp} (${p.cntr_nm})`,
+      data: p.mtm_data,
+      color: TP_COLORS[p.tp] || '#9ca3af',
+      strokeWidth: 1.5,
+      opacity: 0.75,
+    })),
     {
       label: '통합 PnL (가격+쿠폰)',
       data: data.combined_mtm,

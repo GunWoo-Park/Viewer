@@ -237,44 +237,36 @@ export default function MTMModal({
                 <MTMTimeSeriesChart data={data} />
               </div>
 
-              {/* 상품 구성 테이블 */}
+              {/* 상품 구성 테이블 (tp별 그룹) */}
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                  상품 구성
+                  구성 요약
                 </h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
-                        <th className="py-2 px-3 text-left font-medium">
-                          종목코드
-                        </th>
                         <th className="py-2 px-3 text-left font-medium">TP</th>
-                        <th className="py-2 px-3 text-left font-medium">
-                          거래상대방
-                        </th>
+                        <th className="py-2 px-3 text-left font-medium">종목</th>
                         <th className="py-2 px-3 text-right font-medium">
                           명목금액
                         </th>
                         <th className="py-2 px-3 text-right font-medium">
-                          최근 PnL
+                          최근 값
                         </th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.products.map((p) => {
-                        const latestMtm =
+                        const latestVal =
                           p.mtm_data.length > 0
                             ? p.mtm_data[p.mtm_data.length - 1].avg_prc
                             : 0;
                         return (
                           <tr
-                            key={p.obj_cd}
+                            key={p.tp}
                             className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                           >
-                            <td className="py-2 px-3 font-mono text-xs text-blue-700 dark:text-blue-400">
-                              {p.obj_cd}
-                            </td>
                             <td className="py-2 px-3">
                               <span
                                 className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${
@@ -285,7 +277,7 @@ export default function MTMModal({
                                 {p.tp}
                               </span>
                             </td>
-                            <td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400 truncate max-w-[140px]">
+                            <td className="py-2 px-3 font-mono text-xs text-gray-600 dark:text-gray-400 max-w-[200px] truncate" title={p.obj_cd}>
                               {p.cntr_nm}
                             </td>
                             <td className="py-2 px-3 text-right font-mono text-xs text-gray-700 dark:text-gray-300">
@@ -294,13 +286,23 @@ export default function MTMModal({
                                 : formatUSD(p.notn)}
                             </td>
                             <td
-                              className={`py-2 px-3 text-right font-mono text-xs font-medium ${mtmColor(latestMtm)}`}
+                              className={`py-2 px-3 text-right font-mono text-xs font-medium ${mtmColor(latestVal)}`}
                             >
-                              {fmtMtm(latestMtm)}
+                              {fmtMtm(latestVal)}
                             </td>
                           </tr>
                         );
                       })}
+                      {/* 통합 PnL 행 */}
+                      <tr className="border-t-2 border-gray-300 dark:border-gray-600 font-semibold">
+                        <td className="py-2 px-3 text-xs text-gray-800 dark:text-gray-200" colSpan={2}>
+                          통합 PnL (가격+쿠폰)
+                        </td>
+                        <td className="py-2 px-3" />
+                        <td className={`py-2 px-3 text-right font-mono text-xs ${mtmColor(latestCombined)}`}>
+                          {fmtMtm(latestCombined)}
+                        </td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>

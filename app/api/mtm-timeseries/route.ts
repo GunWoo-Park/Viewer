@@ -36,27 +36,27 @@ export async function POST(request: NextRequest) {
 
     const objCodes = productsResult.rows.map((r) => String(r.obj_cd));
 
-    // breakdownprc에서 tp별 가격 시계열 조회
-    // @vercel/postgres는 ANY(${array})를 지원하므로 사용
+    // breakdownprc에서 tp별·날짜별 합산 시계열 조회
     const bdResult = await sql`
-      SELECT obj_cd, tp, std_dt, avg_prc
+      SELECT tp, std_dt, SUM(avg_prc) as total_prc
       FROM breakdownprc
       WHERE obj_cd = ANY(${objCodes as string[]})
-      ORDER BY std_dt ASC, obj_cd, tp
+      GROUP BY tp, std_dt
+      ORDER BY std_dt ASC, tp
     `;
 
-    // obj_cd별 시계열 맵 생성 (tp별 합산 — breakdownprc의 자산+MTM = PnL 가격 부분)
-    const prcMap = new Map<string, { std_dt: string; avg_prc: number }[]>();
+    // tp별 시계열 맵 생성
+    const tpMap = new Map<string, { std_dt: string; avg_prc: number }[]>();
     for (const row of bdResult.rows) {
-      const objCd = row.obj_cd as string;
-      if (!prcMap.has(objCd)) prcMap.set(objCd, []);
-      prcMap.get(objCd)!.push({
+      const tp = row.tp as string;
+      if (!tpMap.has(tp)) tpMap.set(tp, []);
+      tpMap.get(tp)!.push({
         std_dt: row.std_dt as string,
-        avg_prc: Number(row.avg_prc),
+        avg_prc: Number(row.total_prc),
       });
     }
 
-    // excpnp 쿠폰 데이터 조회 (해당 그룹 종목)
+    // excpnp 쿠폰 데이터 조회
     const couponResult = await sql`
       SELECT obj_cd, pay_dt, tp, amt
       FROM excpnp
@@ -71,25 +71,34 @@ export async function POST(request: NextRequest) {
       amt: Number(r.amt),
     }));
 
-    // 상품별 데이터 구성 (breakdownprc 기반)
-    const products = productsResult.rows.map((row) => ({
-      obj_cd: String(row.obj_cd),
-      tp: String(row.tp),
-      notn: Number(row.notn),
-      cntr_nm: String(row.cntr_nm),
-      mtm_data: prcMap.get(String(row.obj_cd)) || [],
-    }));
+    // products: tp별 그룹 (자산, MTM, 캐리)
+    // tp별 notn 합산, 종목 수 표시
+    const tpOrder = ['자산', 'MTM', '캐리'];
+    const tpGroups = tpOrder
+      .filter((tp) => tpMap.has(tp))
+      .map((tp) => {
+        // 해당 tp의 strucprdp 종목들
+        const tpProducts = productsResult.rows.filter((r) => r.tp === tp);
+        const totalNotn = tpProducts.reduce((s, r) => s + Number(r.notn), 0);
+        const objCdList = tpProducts.map((r) => String(r.obj_cd)).join(', ');
+        return {
+          obj_cd: objCdList,
+          tp,
+          notn: totalNotn,
+          cntr_nm: `${tpProducts.length}종목`,
+          mtm_data: tpMap.get(tp) || [],
+        };
+      });
 
-    // 합산 시계열: 날짜별 전체 가격(breakdownprc) 합 + 해당 날짜까지의 누적 쿠폰
-    // 1) 날짜별 가격 합산
+    // 날짜별 전체 합산 (자산+MTM+캐리)
     const datePrcMap = new Map<string, number>();
-    for (const product of products) {
-      for (const d of product.mtm_data) {
+    for (const [, series] of tpMap) {
+      for (const d of series) {
         datePrcMap.set(d.std_dt, (datePrcMap.get(d.std_dt) || 0) + d.avg_prc);
       }
     }
 
-    // 2) 쿠폰 누적 계산 (pay_dt 기준, 해당 날짜 이전 쿠폰 합)
+    // 쿠폰 누적 계산
     const sortedDates = Array.from(datePrcMap.keys()).sort();
     const couponByDate = new Map<string, number>();
     let cumCoupon = 0;
@@ -99,7 +108,6 @@ export async function POST(request: NextRequest) {
     );
 
     for (const dt of sortedDates) {
-      // 이 날짜 이전(포함)의 쿠폰 누적
       while (couponIdx < sortedCoupons.length && sortedCoupons[couponIdx].pay_dt <= dt) {
         cumCoupon += sortedCoupons[couponIdx].amt;
         couponIdx++;
@@ -107,7 +115,7 @@ export async function POST(request: NextRequest) {
       couponByDate.set(dt, cumCoupon);
     }
 
-    // 3) PnL = 가격(breakdownprc) + 누적쿠폰(excpnp)
+    // 통합 PnL = 가격(breakdownprc 전체 합) + 누적쿠폰
     const combined_mtm = sortedDates.map((std_dt) => ({
       std_dt,
       avg_prc: (datePrcMap.get(std_dt) || 0) + (couponByDate.get(std_dt) || 0),
@@ -116,7 +124,7 @@ export async function POST(request: NextRequest) {
     const response: MTMGroupData = {
       eff_dt,
       curr,
-      products,
+      products: tpGroups,
       combined_mtm,
       coupon_events,
     };
