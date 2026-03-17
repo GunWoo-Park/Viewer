@@ -2101,6 +2101,7 @@ export type GapDataPoint = {
   structType: string;
   curr: string;
   productCount: number;
+  notionalEok: number; // 잔액 (억 단위)
   gap: number;        // 자산+MTM 합계 (원 단위)
   asset: number;      // 자산 합계
   mtm: number;        // MTM 합계
@@ -2136,12 +2137,39 @@ export async function fetchGapAnalysis(targetDate?: string): Promise<{
     const prevDt = datesRes.rows.length > 1 ? (datesRes.rows[1].std_dt as string) : null;
     const trendDates = datesRes.rows.map((r: any) => r.std_dt as string);
 
+    // USD 종목별 MAR 환율 (eff_dt -1영업일 기준)
+    const marRates = await fetchUsdMarRates();
+    // fallback 환율
+    const fxFallback = await sql`
+      SELECT close_value FROM tb_macro_index
+      WHERE ticker = 'USD/KRW' AND asset_class = 'FX'
+      ORDER BY base_date DESC LIMIT 1
+    `;
+    const defaultFxRate = fxFallback.rows.length > 0 ? Number(fxFallback.rows[0].close_value) : 1450;
+
+    // USD 종목 obj_cd → MAR 환율 매핑 (struct_type 그룹 가중평균용)
+    const usdProductsRes = await sql`
+      SELECT obj_cd, curr, notn,
+        CONCAT_WS(' / ', NULLIF(type1,''), NULLIF(type2,''), NULLIF(type3,'')) as struct_type
+      FROM strucprdp
+      WHERE curr = 'USD' AND tp = '자산'
+        AND (call_yn = 'N' OR call_yn IS NULL)
+    `;
+    // struct_type별 USD 잔액 원화환산 합계
+    const usdNotionalKrwByType: Record<string, number> = {};
+    for (const p of usdProductsRes.rows) {
+      const key = `${p.struct_type}|USD`;
+      const mar = marRates[String(p.obj_cd)] || defaultFxRate;
+      usdNotionalKrwByType[key] = (usdNotionalKrwByType[key] || 0) + Number(p.notn) * mar;
+    }
+
     // 최신일 struct_type별 괴리
     const gapRes = await sql`
       SELECT
         CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) as struct_type,
         s.curr,
         COUNT(DISTINCT b.obj_cd) as product_cnt,
+        COALESCE(SUM(DISTINCT s.notn), 0) as total_notional,
         SUM(CASE WHEN b.tp IN ('자산','MTM') THEN b.avg_prc ELSE 0 END) as gap,
         SUM(CASE WHEN b.tp = '자산' THEN b.avg_prc ELSE 0 END) as asset,
         SUM(CASE WHEN b.tp = 'MTM' THEN b.avg_prc ELSE 0 END) as mtm
@@ -2173,13 +2201,25 @@ export async function fetchGapAnalysis(targetDate?: string): Promise<{
     }
 
     const data: GapDataPoint[] = gapRes.rows.map((r: any) => {
+      const curr = r.curr as string;
+      const key = `${r.struct_type}|${curr}`;
+      const rawNotional = Number(r.total_notional);
+
+      // USD → 원화환산 (MAR 기준), KRW → 그대로
+      let notionalKrw: number;
+      if (curr === 'USD') {
+        notionalKrw = usdNotionalKrwByType[key] || rawNotional * defaultFxRate;
+      } else {
+        notionalKrw = rawNotional;
+      }
+
       const gapEok = Number(r.gap) / 100000000;
-      const key = `${r.struct_type}|${r.curr}`;
       const prevGapEok = prevGapMap[key] ?? gapEok;
       return {
         structType: r.struct_type,
-        curr: r.curr,
+        curr,
         productCount: Number(r.product_cnt),
+        notionalEok: Math.round(notionalKrw / 100000000 * 10) / 10,
         gap: Number(r.gap),
         asset: Number(r.asset),
         mtm: Number(r.mtm),

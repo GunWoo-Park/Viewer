@@ -27,6 +27,11 @@ function fmtEok(v: number, showSign = true): string {
   return `${sign}${v.toFixed(1)}억`;
 }
 
+// '\' → '₩' 변환 (struct_type 표시용)
+function wonLabel(s: string): string {
+  return s.replace(/\\/g, '₩');
+}
+
 export function GapBubbleChart({
   data,
   trend,
@@ -69,12 +74,12 @@ export function GapBubbleChart({
   const absGaps = gaps.map(Math.abs);
   const maxAbsGap = Math.max(...absGaps);
 
-  // 버블 크기: 상품 수 기준
-  const counts = filtered.map((d) => d.productCount);
-  const maxCount = Math.max(...counts);
+  // 버블 크기: 잔액 규모 기준 (억)
+  const notionals = filtered.map((d) => d.notionalEok);
+  const maxNotional = Math.max(...notionals, 1);
   const minR = 12, maxR = 45;
 
-  const toR = (cnt: number) => minR + ((cnt / maxCount) * (maxR - minR));
+  const toR = (n: number) => minR + ((n / maxNotional) * (maxR - minR));
 
   // Y축 범위: 괴리 값 (대칭)
   const yBound = Math.ceil(maxAbsGap * 1.15);
@@ -208,7 +213,7 @@ export function GapBubbleChart({
             {filtered.map((d, i) => {
               const cx = toX(d.change);
               const cy = toY(d.gapEok);
-              const r = toR(d.productCount);
+              const r = toR(d.notionalEok);
               const color = getColor(d.structType);
               const isHovered = hoveredIdx === i;
               const isSelected = selectedIdx === i;
@@ -251,7 +256,7 @@ export function GapBubbleChart({
                       style={{ fontSize: Math.min(r * 0.45, 11), fontWeight: 600, pointerEvents: 'none' }}
                       fill="white"
                     >
-                      {d.structType.split(' / ')[0]}
+                      {wonLabel(d.structType.split(' / ')[0])}
                     </text>
                   )}
                   {r >= 18 && !dimmed && (
@@ -295,10 +300,10 @@ export function GapBubbleChart({
                     fill="#1f2937" fillOpacity={0.95} stroke="#374151" strokeWidth={1} />
                   <text x={tx + tooltipW / 2} y={ty + 16} textAnchor="middle"
                     style={{ fontSize: 11, fontWeight: 700 }} fill="#e5e7eb">
-                    {d.structType}
+                    {wonLabel(d.structType)}
                   </text>
                   <text x={tx + 10} y={ty + 34} style={{ fontSize: 10 }} fill="#9ca3af">
-                    {d.curr} · {d.productCount}종목
+                    {d.curr} · {d.productCount}종목 · 잔액 {fmtEok(d.notionalEok)}
                   </text>
                   <text x={tx + 10} y={ty + 52} style={{ fontSize: 10 }} fill="#d1d5db">괴리</text>
                   <text x={tx + tooltipW - 10} y={ty + 52} textAnchor="end"
@@ -329,7 +334,7 @@ export function GapBubbleChart({
           <div className="w-64 flex-shrink-0 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
             <div className="mb-2">
               <p className="text-xs font-bold text-gray-700 dark:text-gray-200 truncate">
-                {selectedItem.structType}
+                {wonLabel(selectedItem.structType)}
               </p>
               <p className="text-[10px] text-gray-400">{selectedItem.curr} · 추이</p>
             </div>
@@ -366,7 +371,7 @@ export function GapBubbleChart({
           <svg width="12" height="12"><circle cx="6" cy="6" r="3" fill="#6b7280" opacity="0.4" /></svg>
           <span>소</span>
           <svg width="18" height="18"><circle cx="9" cy="9" r="7" fill="#6b7280" opacity="0.4" /></svg>
-          <span>종목 수</span>
+          <span>잔액 규모</span>
         </div>
       </div>
     </div>
