@@ -363,8 +363,8 @@ export function GapBubbleChart({
                       return (
                         <div key={p.objCd} className="text-[10px]">
                           <div className="flex items-center justify-between mb-0.5">
-                            <span className="text-gray-600 dark:text-gray-300 truncate max-w-[140px]" title={p.fndNm}>
-                              {i + 1}. {wonLabel(p.fndNm)}
+                            <span className="text-gray-600 dark:text-gray-300 truncate max-w-[140px]" title={p.objCd}>
+                              {i + 1}. {p.objCd}
                             </span>
                             <span className={`font-mono font-bold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
                               {p.gapEok > 0 ? '+' : ''}{p.gapEok.toFixed(1)}억
