@@ -4,6 +4,7 @@ import { fetchGappingBtbDelta, fetchRiskDelta, fetchPnlrtpDetail, fetchRiskSwapV
 import type { GappingDeltaSummary, PnlrtpRow } from '@/app/lib/data';
 import { KrwDeltaChart, UsdDeltaChart, TotalDeltaChart } from '@/app/ui/risk/delta-chart';
 import { DateSelector } from '@/app/ui/dashboard/date-selector';
+import LimitGauge from '@/app/ui/risk/limit-gauge';
 
 // 금액 포맷 헬퍼
 function formatDelta(value: number, format: 'krw' | 'usd'): string {
@@ -424,6 +425,15 @@ export default async function RiskPage({
             </div>
           </div>
         )}
+      </div>
+
+      {/* 부채 평가금액 한도 모니터링 게이지 */}
+      <div className="mb-6">
+        <LimitGauge
+          selfIssuedEok={swapValuations.selfIssued.totalPrc / 1e8}
+          mtmHedgeEok={swapValuations.mtmHedge.totalPrc / 1e8}
+          defaultLimit={300}
+        />
       </div>
 
       {/* NET DELTA(좌) | Gapping BTB Delta(우) */}
