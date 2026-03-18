@@ -134,8 +134,8 @@ export default async function Page({
           />
           <SummaryCard
             label="USD 운용잔고"
-            value={summary ? `$${(summary.usdAssetNotional / 1000000).toLocaleString('en-US', { maximumFractionDigits: 1 })}M` : '-'}
-            sub={summary ? `${summary.usdCount}건 · MAR ${carry.usdKrwRate.toFixed(0)}` : ''}
+            value={summary ? fmtEok(summary.usdAssetNotionalMarKrw) : '-'}
+            sub={summary ? `${summary.usdCount}건 · $${(summary.usdAssetNotional / 1000000).toLocaleString('en-US', { maximumFractionDigits: 1 })}M` : ''}
             badge="USD"
             badgeColor="bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
           />
