@@ -516,12 +516,13 @@ export async function fetchFilteredStrucprdp(
   query: string,
   currentPage: number,
   callFilter: string = 'N',
+  tpFilter: string = 'ASSET',
 ): Promise<Strucprdp[]> {
   noStore();
 
   try {
     // callFilter: 'Y' = 콜된 종목만, 'N' = 미콜 종목만(기본), 'ALL' = 전체
-    // 전 종목 한 페이지 출력 (페이지네이션 제거)
+    // tpFilter: 'ASSET' = 자체발행 제외(기본), 'SELF' = 자체발행만, 'ALL' = 전체
     const data = await sql<Strucprdp>`
       SELECT *
       FROM strucprdp
@@ -545,7 +546,11 @@ export async function fetchFilteredStrucprdp(
           OR (${callFilter} = 'N' AND call_yn IS NULL)
         )
         AND fnd_cd = '10206020'
-        AND tp != '자체발행'
+        AND (
+          ${tpFilter} = 'ALL'
+          OR (${tpFilter} = 'ASSET' AND tp != '자체발행')
+          OR (${tpFilter} = 'SELF' AND tp = '자체발행')
+        )
       ORDER BY no ASC
     `;
 
@@ -1129,6 +1134,7 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
         JOIN swap_prc s ON s.obj_cd = p.obj_cd AND s.std_dt = ${targetDt}
         WHERE p.asst_lblt = '부채' AND p.tp = '자체발행' AND p.fnd_cd = '10206020'
           AND s.fnd_cd = '10206020'
+          AND (p.type4 IS NULL OR p.type4 != 'Index')
       `,
       sql`
         SELECT COALESCE(SUM(s.avg_prc), 0) AS total_prc,

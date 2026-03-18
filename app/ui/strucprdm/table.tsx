@@ -458,6 +458,7 @@ function CurrBadge({ value }: { value: string }) {
 }
 
 // 구조 유형 뱃지 — 2줄 컴팩트 (type1 위, type2~4 아래)
+// 자체발행 종목은 type1이 NULL이고 type4에 구조유형이 있으므로 fallback 적용
 function StructTypeBadgesCompact({
   type1,
   type2,
@@ -471,9 +472,10 @@ function StructTypeBadgesCompact({
 }) {
   const fix = (s: string) => s.replace(/\\/g, '₩');
 
-  if (!type1) return <span className="text-gray-300 dark:text-gray-600">-</span>;
+  const mainType = type1 || type4;
+  if (!mainType) return <span className="text-gray-300 dark:text-gray-600">-</span>;
 
-  const type1ColorMap: Record<string, string> = {
+  const typeColorMap: Record<string, string> = {
     'Range Accrual': 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
     Spread: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
     Floater: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
@@ -482,13 +484,15 @@ function StructTypeBadgesCompact({
     'Zero Callable': 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
   };
 
-  const mainColor = type1ColorMap[type1] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
-  const subParts = [type2, type3, type4].filter((v) => v && v !== '').map(fix);
+  const mainColor = typeColorMap[mainType] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+  const subParts = type1
+    ? [type2, type3, type4].filter((v) => v && v !== '').map(fix)
+    : [type2, type3].filter((v) => v && v !== '').map(fix);
 
   return (
     <div className="flex flex-col gap-0.5">
       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold w-fit ${mainColor}`}>
-        {fix(type1)}
+        {fix(mainType)}
       </span>
       {subParts.length > 0 && (
         <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate max-w-[160px]" title={subParts.join(' / ')}>
@@ -511,12 +515,12 @@ function StructTypeBadges({
   type3: string;
   type4: string;
 }) {
-  // 백슬래시(\)를 ₩로 치환 (예: \Zero → ₩Zero)
   const fix = (s: string) => s.replace(/\\/g, '₩');
 
-  if (!type1) return <span className="text-gray-300 dark:text-gray-600">-</span>;
+  const mainType = type1 || type4;
+  if (!mainType) return <span className="text-gray-300 dark:text-gray-600">-</span>;
 
-  const type1ColorMap: Record<string, string> = {
+  const typeColorMap: Record<string, string> = {
     'Range Accrual': 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
     Spread: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
     Floater: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
@@ -525,13 +529,15 @@ function StructTypeBadges({
     'Zero Callable': 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
   };
 
-  const mainColor = type1ColorMap[type1] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
-  const subParts = [type2, type3, type4].filter((v) => v && v !== '').map(fix);
+  const mainColor = typeColorMap[mainType] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+  const subParts = type1
+    ? [type2, type3, type4].filter((v) => v && v !== '').map(fix)
+    : [type2, type3].filter((v) => v && v !== '').map(fix);
 
   return (
     <div className="flex flex-wrap gap-1">
       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${mainColor}`}>
-        {fix(type1)}
+        {fix(mainType)}
       </span>
       {subParts.map((sub, i) => (
         <span

@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { Metadata } from 'next';
 import Search from '@/app/ui/search';
 import CallFilter from '@/app/ui/strucprdm/call-filter';
+import TpFilter from '@/app/ui/strucprdm/tp-filter';
 import DatePicker from '@/app/ui/strucprdm/date-picker';
 import SummaryCards from '@/app/ui/strucprdm/summary-cards';
 import DistributionCharts from '@/app/ui/strucprdm/distribution-charts';
@@ -34,11 +35,13 @@ export default async function StrucprdmPage({
   searchParams?: {
     query?: string;
     callFilter?: string;
+    tpFilter?: string;
     pnlDate?: string;
   };
 }) {
   const query = searchParams?.query || '';
   const callFilter = searchParams?.callFilter || 'N';
+  const tpFilter = searchParams?.tpFilter || 'ASSET';
   const pnlDate = searchParams?.pnlDate || '';
 
   // 가용 날짜 목록 (date picker용)
@@ -83,10 +86,13 @@ export default async function StrucprdmPage({
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">상품 목록</h2>
         <div className="flex items-center justify-between gap-2">
           <Search placeholder="상품코드, 거래상대방, 유형, 통화로 검색..." />
-          <CallFilter />
+          <div className="flex items-center gap-3">
+            <TpFilter />
+            <CallFilter />
+          </div>
         </div>
-        <Suspense key={query + callFilter + pnlDate} fallback={<TableSkeleton />}>
-          <StrucprdmTableWrapper query={query} callFilter={callFilter} pnlDate={pnlDate} />
+        <Suspense key={query + callFilter + tpFilter + pnlDate} fallback={<TableSkeleton />}>
+          <StrucprdmTableWrapper query={query} callFilter={callFilter} tpFilter={tpFilter} pnlDate={pnlDate} />
         </Suspense>
       </div>
     </div>
@@ -133,17 +139,19 @@ async function DistributionChartsWrapper() {
 async function StrucprdmTableWrapper({
   query,
   callFilter,
+  tpFilter,
   pnlDate,
 }: {
   query: string;
   callFilter: string;
+  tpFilter: string;
   pnlDate: string;
 }) {
   const targetDate = pnlDate || undefined;
   const [summary, accintRates, products, pnlData, marRates] = await Promise.all([
     fetchStrucprdpSummary(),
     fetchLatestAccintRates(),
-    fetchFilteredStrucprdp(query, 1, callFilter),
+    fetchFilteredStrucprdp(query, 1, callFilter, tpFilter),
     fetchProductDailyPnl(targetDate),
     fetchUsdMarRates(),
   ]);
