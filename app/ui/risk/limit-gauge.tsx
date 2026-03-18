@@ -3,23 +3,29 @@
 import { useState, useEffect } from 'react';
 import { lusitana } from '@/app/ui/fonts';
 
-// 억 단위 포맷
 function fmtEok(v: number): string {
-  if (Math.abs(v) >= 10) return `${v.toFixed(0)}억`;
-  if (Math.abs(v) >= 1) return `${v.toFixed(1)}억`;
-  return `${v.toFixed(2)}억`;
+  const sign = v > 0 ? '+' : v < 0 ? '' : '';
+  const a = Math.abs(v);
+  if (a >= 10) return `${sign}${v.toFixed(0)}억`;
+  if (a >= 1) return `${sign}${v.toFixed(1)}억`;
+  return `${sign}${v.toFixed(2)}억`;
 }
 
 export default function LimitGauge({
   selfIssuedEok,
+  selfIssuedCount,
   mtmHedgeEok,
+  mtmHedgeCount,
   defaultLimit,
+  exportDate,
 }: {
-  selfIssuedEok: number; // 자체발행 부채 (억, 음수)
-  mtmHedgeEok: number;   // MTM헤지 (억, 음수)
-  defaultLimit: number;  // 기본 한도 (억, 양수)
+  selfIssuedEok: number;   // 자체발행 부채 (억, 음수)
+  selfIssuedCount: number;
+  mtmHedgeEok: number;     // MTM헤지 (억, 음수)
+  mtmHedgeCount: number;
+  defaultLimit: number;    // 한도 (억, 양수)
+  exportDate: string;
 }) {
-  // localStorage에서 한도 복원 (클라이언트만)
   const [limit, setLimit] = useState(defaultLimit);
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState('');
@@ -33,15 +39,20 @@ export default function LimitGauge({
     } catch {}
   }, []);
 
-  // 합산 (절대값 — 부채이므로 음수를 양수로)
-  const selfAbs = Math.abs(selfIssuedEok);
-  const mtmAbs = Math.abs(mtmHedgeEok);
-  const totalAbs = selfAbs + mtmAbs;
-  const usage = limit > 0 ? (totalAbs / limit) * 100 : 0;
-  const isOver = totalAbs > limit;
-  const isWarning = usage >= 80 && !isOver;
+  // 대수합 (자체발행 + MTM헤지, 보통 음수)
+  const totalSum = selfIssuedEok + mtmHedgeEok;
+  // 여유 = 한도 - 합산 (합산이 음수면 여유가 매우 큼)
+  const headroom = limit - totalSum;
+  // 한도 소진율: 합산이 한도에 얼마나 가까운지 (0% = 매우 건전, 100% = 한도 도달)
+  // 게이지 범위: 합산의 최소값(현재값 또는 -limit)부터 limit까지
+  const gaugeMin = Math.min(totalSum, -limit);
+  const gaugeRange = limit - gaugeMin;
+  const fillPct = gaugeRange > 0 ? ((totalSum - gaugeMin) / gaugeRange) * 100 : 0;
 
-  // 한도 저장
+  const isOver = totalSum > limit;
+  const isWarning = totalSum > limit * 0.8;
+  const isHealthy = !isOver && !isWarning;
+
   const saveLimit = () => {
     const v = parseFloat(editVal);
     if (!isNaN(v) && v > 0) {
@@ -53,157 +64,107 @@ export default function LimitGauge({
 
   if (!mounted) return null;
 
-  // 게이지 바 색상
-  const barColor = isOver
-    ? 'bg-rose-500 dark:bg-rose-400'
-    : isWarning
-      ? 'bg-amber-500 dark:bg-amber-400'
-      : 'bg-emerald-500 dark:bg-emerald-400';
-
   const statusColor = isOver
     ? 'text-rose-600 dark:text-rose-400'
-    : isWarning
-      ? 'text-amber-600 dark:text-amber-400'
-      : 'text-emerald-600 dark:text-emerald-400';
-
+    : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400';
+  const barColor = isOver
+    ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500';
   const statusBg = isOver
-    ? 'bg-rose-50 border-rose-200 dark:bg-rose-950/30 dark:border-rose-800'
-    : isWarning
-      ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800'
-      : 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800';
+    ? 'border-rose-200 dark:border-rose-800'
+    : isWarning ? 'border-amber-200 dark:border-amber-800' : 'border-gray-200 dark:border-gray-700';
+  const statusLabel = isOver ? '한도 초과' : isWarning ? '한도 근접' : '건전';
 
   return (
-    <div className={`rounded-xl border p-5 shadow-sm ${statusBg}`}>
-      {/* 헤더 */}
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h3 className="font-semibold text-gray-700 dark:text-gray-200 text-sm">
-            부채 평가금액 한도 모니터링
-          </h3>
-          <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
-            자체발행 + MTM헤지 합산 |{' '}
-            {isOver ? '한도 초과' : isWarning ? '한도 경고 (80% 이상)' : '정상 범위'}
-          </p>
+    <div className={`rounded-xl border bg-white dark:bg-gray-900 p-4 shadow-sm ${statusBg}`}>
+      {/* 상단: 합산 수치 + 게이지 + 한도 설정 */}
+      <div className="flex items-center gap-4 mb-3">
+        <div className="flex items-baseline gap-1.5 shrink-0">
+          <span className={`${lusitana.className} text-xl font-bold ${statusColor}`}>
+            {fmtEok(totalSum)}
+          </span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">/ {limit}억</span>
+          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+            isOver ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+              : isWarning ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+          }`}>
+            {statusLabel}
+          </span>
         </div>
-        {/* 한도 설정 */}
-        <div className="flex items-center gap-2">
-          {editing ? (
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                value={editVal}
-                onChange={(e) => setEditVal(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && saveLimit()}
-                className="w-20 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-0.5 text-xs font-mono text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                placeholder="억"
-                autoFocus
-              />
-              <button
-                onClick={saveLimit}
-                className="rounded bg-blue-500 px-2 py-0.5 text-[10px] text-white hover:bg-blue-600"
-              >
-                저장
-              </button>
-              <button
-                onClick={() => setEditing(false)}
-                className="rounded bg-gray-200 dark:bg-gray-700 px-2 py-0.5 text-[10px] text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-              >
-                취소
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => { setEditVal(String(limit)); setEditing(true); }}
-              className="flex items-center gap-1 rounded-lg bg-white/60 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800 transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-              한도: {limit}억
-            </button>
+
+        {/* 게이지 바: 좌(건전/음수) → 우(한도) */}
+        <div className="flex-1 relative h-3 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+          {/* 채움: 합산이 낮을수록(음수 클수록) 짧음 = 건전 */}
+          <div
+            className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${barColor}`}
+            style={{ width: `${Math.min(Math.max(fillPct, 2), 100)}%` }}
+          />
+          {/* 한도선 위치 마커 */}
+          {!isOver && (
+            <div className="absolute inset-y-0 right-0 w-0.5 bg-gray-400 dark:bg-gray-500" />
+          )}
+          {isOver && (
+            <div
+              className="absolute inset-y-0 rounded-r-full bg-rose-600/30"
+              style={{
+                left: `${((limit - gaugeMin) / gaugeRange) * 100}%`,
+                right: 0,
+                backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(255,255,255,0.15) 3px, rgba(255,255,255,0.15) 6px)',
+              }}
+            />
           )}
         </div>
-      </div>
 
-      {/* 메인 수치 */}
-      <div className="flex items-end gap-3 mb-4">
-        <p className={`${lusitana.className} text-3xl font-bold ${statusColor}`}>
-          {fmtEok(totalAbs)}
-        </p>
-        <p className="text-sm text-gray-400 dark:text-gray-500 pb-0.5">
-          / {limit}억
-        </p>
-        <p className={`text-sm font-semibold pb-0.5 ${statusColor}`}>
-          ({usage.toFixed(1)}%)
-        </p>
-      </div>
-
-      {/* 게이지 바 */}
-      <div className="relative h-6 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden mb-3">
-        {/* 한도 채움 바 */}
-        <div
-          className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${barColor}`}
-          style={{ width: `${Math.min(usage, 100)}%` }}
-        />
-        {/* 초과분 (빨간 줄무늬) */}
-        {isOver && (
-          <div
-            className="absolute inset-y-0 rounded-r-full bg-rose-600/30 dark:bg-rose-400/20"
-            style={{
-              left: `${(limit / totalAbs) * 100}%`,
-              width: `${100 - (limit / totalAbs) * 100}%`,
-              backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255,255,255,0.15) 4px, rgba(255,255,255,0.15) 8px)',
-            }}
-          />
-        )}
-        {/* 한도선 */}
-        {usage < 100 && (
-          <div
-            className="absolute inset-y-0 w-0.5 bg-gray-500 dark:bg-gray-400"
-            style={{ left: '100%' }}
-          />
-        )}
-        {isOver && (
-          <div
-            className="absolute inset-y-0 w-0.5 bg-rose-700 dark:bg-rose-300"
-            style={{ left: `${(limit / totalAbs) * 100}%` }}
-          />
+        {/* 한도 설정 */}
+        {editing ? (
+          <div className="flex items-center gap-1 shrink-0">
+            <input
+              type="number"
+              value={editVal}
+              onChange={(e) => setEditVal(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveLimit(); if (e.key === 'Escape') setEditing(false); }}
+              className="w-16 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-1.5 py-0.5 text-[10px] font-mono text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              autoFocus
+            />
+            <button onClick={saveLimit} className="rounded bg-blue-500 px-1.5 py-0.5 text-[10px] text-white hover:bg-blue-600">OK</button>
+            <button onClick={() => setEditing(false)} className="rounded bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-gray-400">X</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => { setEditVal(String(limit)); setEditing(true); }}
+            className="shrink-0 rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+          >
+            한도: {limit}억
+          </button>
         )}
       </div>
 
-      {/* 내역 구분 바 (stacked horizontal) */}
-      <div className="flex items-center gap-4 text-xs">
-        <div className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-sm bg-fuchsia-400 dark:bg-fuchsia-500" />
+      {/* 하단: 자체발행 / MTM헤지 내역 + 여유 */}
+      <div className="flex items-center gap-3 text-xs flex-wrap">
+        <div className="flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-sm bg-fuchsia-400" />
           <span className="text-gray-500 dark:text-gray-400">자체발행</span>
-          <span className="font-mono font-semibold text-gray-700 dark:text-gray-200">
-            {fmtEok(selfAbs)}
-          </span>
+          <span className="font-mono font-semibold text-gray-700 dark:text-gray-200">{fmtEok(selfIssuedEok)}</span>
+          <span className="text-gray-400 dark:text-gray-600">({selfIssuedCount})</span>
+          <a href={`/api/risk-export?tp=self&date=${exportDate}`} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="XLSX">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          </a>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-sm bg-amber-400 dark:bg-amber-500" />
+        <span className="text-gray-300 dark:text-gray-600">|</span>
+        <div className="flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-sm bg-amber-400" />
           <span className="text-gray-500 dark:text-gray-400">MTM헤지</span>
-          <span className="font-mono font-semibold text-gray-700 dark:text-gray-200">
-            {fmtEok(mtmAbs)}
-          </span>
+          <span className="font-mono font-semibold text-gray-700 dark:text-gray-200">{fmtEok(mtmHedgeEok)}</span>
+          <span className="text-gray-400 dark:text-gray-600">({mtmHedgeCount})</span>
+          <a href={`/api/risk-export?tp=mtm&date=${exportDate}`} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="XLSX">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          </a>
         </div>
-        <div className="flex-1" />
-        <span className="text-gray-400 dark:text-gray-500">
-          여유: {limit - totalAbs >= 0 ? fmtEok(limit - totalAbs) : `-${fmtEok(totalAbs - limit)}`}
+        <span className="flex-1" />
+        <span className="text-gray-400 dark:text-gray-500 text-[10px]">
+          여유: <span className={statusColor}>{fmtEok(headroom)}</span>
         </span>
       </div>
-
-      {/* 비율 막대 (자체발행 vs MTM헤지) */}
-      {totalAbs > 0 && (
-        <div className="mt-3 flex h-2 rounded-full overflow-hidden">
-          <div
-            className="bg-fuchsia-400 dark:bg-fuchsia-500"
-            style={{ width: `${(selfAbs / totalAbs) * 100}%` }}
-          />
-          <div
-            className="bg-amber-400 dark:bg-amber-500"
-            style={{ width: `${(mtmAbs / totalAbs) * 100}%` }}
-          />
-        </div>
-      )}
     </div>
   );
 }

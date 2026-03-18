@@ -351,88 +351,15 @@ export default async function RiskPage({
         )}
       </div>
 
-      {/* 스왑 유형별 평가금액 카드 */}
-      <div className="mb-6 grid gap-4 grid-cols-1 lg:grid-cols-2">
-        {/* 자체발행 부채 */}
-        {swapValuations.selfIssued.count > 0 && (
-          <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  자체발행 부채 평가금액
-                  <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500">
-                    ({swapValuations.selfIssued.count}건)
-                  </span>
-                </p>
-                <p className={`${lusitana.className} text-2xl font-bold ${
-                  swapValuations.selfIssued.totalPrc >= 0
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
-                }`}>
-                  {swapValuations.selfIssued.totalPrc >= 0 ? '+' : '-'}
-                  {formatDelta(swapValuations.selfIssued.totalPrc, 'krw')}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <a
-                  href={`/api/risk-export?tp=self&date=${currentSwapDate}`}
-                  className="inline-flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-2 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                  title="엑셀 다운로드"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                  XLSX
-                </a>
-                <span className="inline-flex items-center rounded-full bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 px-2.5 py-0.5 text-xs font-medium">
-                  자체발행
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* MTM헤지 */}
-        {swapValuations.mtmHedge.count > 0 && (
-          <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  MTM헤지 평가금액
-                  <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500">
-                    ({swapValuations.mtmHedge.count}건)
-                  </span>
-                </p>
-                <p className={`${lusitana.className} text-2xl font-bold ${
-                  swapValuations.mtmHedge.totalPrc >= 0
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
-                }`}>
-                  {swapValuations.mtmHedge.totalPrc >= 0 ? '+' : '-'}
-                  {formatDelta(swapValuations.mtmHedge.totalPrc, 'krw')}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <a
-                  href={`/api/risk-export?tp=mtm&date=${currentSwapDate}`}
-                  className="inline-flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-2 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                  title="엑셀 다운로드"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                  XLSX
-                </a>
-                <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2.5 py-0.5 text-xs font-medium">
-                  MTM헤지
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 부채 평가금액 한도 모니터링 게이지 */}
+      {/* 부채 평가금액 한도 모니터링 (통합) */}
       <div className="mb-6">
         <LimitGauge
           selfIssuedEok={swapValuations.selfIssued.totalPrc / 1e8}
+          selfIssuedCount={swapValuations.selfIssued.count}
           mtmHedgeEok={swapValuations.mtmHedge.totalPrc / 1e8}
+          mtmHedgeCount={swapValuations.mtmHedge.count}
           defaultLimit={300}
+          exportDate={currentSwapDate}
         />
       </div>
 
