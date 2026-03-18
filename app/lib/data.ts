@@ -1134,7 +1134,7 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
         JOIN swap_prc s ON s.obj_cd = p.obj_cd AND s.std_dt = ${targetDt}
         WHERE p.asst_lblt = '부채' AND p.tp = '자체발행' AND p.fnd_cd = '10206020'
           AND s.fnd_cd = '10206020'
-          AND (p.type4 IS NULL OR p.type4 != 'Index')
+          AND (p.type4 IS NULL OR p.type4 NOT IN ('Index', 'Floater'))
       `,
       sql`
         SELECT COALESCE(SUM(s.avg_prc), 0) AS total_prc,
