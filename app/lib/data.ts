@@ -1090,6 +1090,83 @@ export async function fetchUsdMarRates(): Promise<Record<string, number>> {
   }
 }
 
+/**
+ * RISK 탭 상단 카드용: 스왑 유형별 평가금액 합계
+ * - 자체발행 부채: asst_lblt='부채' AND tp='자체발행'
+ * - MTM헤지: tp='MTM' (자산스왑 MTM 변동성 상쇄 목적)
+ * swap_prc 최신 avg_prc 기준
+ */
+export type SwapTypeValuation = {
+  totalPrc: number;
+  count: number;
+  stdDt: string;
+};
+
+export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
+  selfIssued: SwapTypeValuation;
+  mtmHedge: SwapTypeValuation;
+  availableDates: string[];
+}> {
+  noStore();
+  try {
+    // swap_prc에서 조회 가능한 날짜 목록
+    const datesResult = await sql`
+      SELECT DISTINCT std_dt FROM swap_prc
+      WHERE fnd_cd = '10206020'
+      ORDER BY std_dt DESC
+    `;
+    const availableDates = datesResult.rows.map((r) => String(r.std_dt));
+
+    // 조회 대상 날짜 결정
+    const targetDt = stdDt && availableDates.includes(stdDt) ? stdDt : availableDates[0] || '';
+
+    const [selfResult, mtmResult] = await Promise.all([
+      sql`
+        SELECT COALESCE(SUM(s.avg_prc), 0) AS total_prc,
+               COUNT(DISTINCT p.obj_cd) AS cnt,
+               MAX(s.std_dt) AS latest_dt
+        FROM strucprdp p
+        JOIN swap_prc s ON s.obj_cd = p.obj_cd AND s.std_dt = ${targetDt}
+        WHERE p.asst_lblt = '부채' AND p.tp = '자체발행' AND p.fnd_cd = '10206020'
+          AND s.fnd_cd = '10206020'
+      `,
+      sql`
+        SELECT COALESCE(SUM(s.avg_prc), 0) AS total_prc,
+               COUNT(DISTINCT p.obj_cd) AS cnt,
+               MAX(s.std_dt) AS latest_dt
+        FROM strucprdp p
+        JOIN swap_prc s ON s.obj_cd = p.obj_cd AND s.std_dt = ${targetDt}
+        WHERE p.tp = 'MTM' AND p.fnd_cd = '10206020'
+          AND (p.call_yn = 'N' OR p.call_yn IS NULL)
+          AND s.fnd_cd = '10206020'
+      `,
+    ]);
+
+    const s = selfResult.rows[0];
+    const m = mtmResult.rows[0];
+    return {
+      selfIssued: {
+        totalPrc: Number(s?.total_prc || 0),
+        count: Number(s?.cnt || 0),
+        stdDt: String(s?.latest_dt || ''),
+      },
+      mtmHedge: {
+        totalPrc: Number(m?.total_prc || 0),
+        count: Number(m?.cnt || 0),
+        stdDt: String(m?.latest_dt || ''),
+      },
+      availableDates,
+    };
+  } catch (error) {
+    console.error('fetchRiskSwapValuations Error:', error);
+    return {
+      selfIssued: { totalPrc: 0, count: 0, stdDt: '' },
+      mtmHedge: { totalPrc: 0, count: 0, stdDt: '' },
+      availableDates: [],
+    };
+  }
+}
+
 // =============================================
 // PnL 관련 함수 (breakdownprc + excpnp)
 // =============================================

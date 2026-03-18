@@ -516,6 +516,129 @@ def upload_market_rates(conn, target_ts=None):
     return inserted
 
 
+def upload_swap_prc(conn, filepath):
+    """swap_prc: 배치 INSERT (std_dt + obj_cd 기준 중복 스킵)"""
+    print(f"\n[swap_prc] {os.path.basename(filepath)}")
+    headers, rows = read_tsv(filepath)
+    cur = conn.cursor()
+
+    # 기존 키 조회 (std_dt + obj_cd)
+    cur.execute("SELECT std_dt || '|' || obj_cd FROM swap_prc")
+    existing = {r[0] for r in cur.fetchall()}
+    print(f"  DB 기존: {len(existing)}건")
+
+    new_rows = []
+    skipped = 0
+    for row in rows:
+        no_val = num(row[0])
+        std_dt = clean(row[1])
+        fnd_cd = clean(row[2])
+        fnd_nm = clean(row[3])
+        obj_cd = clean(row[4])
+        if not std_dt or not obj_cd:
+            continue
+
+        key = f"{std_dt}|{obj_cd}"
+        if key in existing:
+            skipped += 1
+            continue
+
+        obj_nm = clean(row[5])
+        prd_dvsn = clean(row[6])
+        prd_grp = clean(row[7])
+        asst_lvl = clean(row[8])
+        trd_tp = clean(row[9])
+        cntrprt = clean(row[10])
+        pstn = clean(row[11])
+        fxd_rt = num(row[12])
+        init_prncpl_ex = clean(row[13])
+        lst_prncpl_ex = clean(row[14])
+        crrnt2 = clean(row[15])
+        ntnl2 = num(row[16])
+        crrnt1 = clean(row[17])
+        ntnl1 = num(row[18])
+        kis_prc = num(row[19])
+        kap_prc = num(row[20])
+        nic_prc = num(row[21])
+        fnp_prc = num(row[22])
+        lstyr_prc = num(row[23])
+        avg_prc = num(row[24])
+        buy_pnl = num(row[25])
+        buy_pnl_accnt = num(row[26])
+        ystrdy_npv = num(row[27])
+        tdy_npv = num(row[28])
+        calc_blnc = num(row[29])
+        swp_asst_lblt = num(row[30])
+        swp_asst_lblt_accnt = num(row[31])
+        prmm_asst_lblt = num(row[32])
+        trd_dt = clean(row[33])
+        eff_dt = clean(row[34])
+        adjst_mtrty = clean(row[35])
+        inpt_mtrty = clean(row[36])
+        mar = num(row[37])
+        rcv_ytm = num(row[38])
+        rcv_dur = num(row[39])
+        pay_ytm = num(row[40])
+        pay_dur = num(row[41])
+        swap_dur = num(row[42])
+        prc_diff = clean(row[43])
+        avg_prc_usd = num(row[44])
+        nd_yn = clean(row[45]) if len(row) > 45 else None
+        erly_exr_yn = clean(row[46]) if len(row) > 46 else None
+        erly_exr_dt = clean(row[47]) if len(row) > 47 else None
+
+        new_rows.append((
+            int(no_val) if no_val else None, std_dt, fnd_cd, fnd_nm, obj_cd, obj_nm,
+            prd_dvsn, prd_grp, asst_lvl, trd_tp, cntrprt, pstn,
+            fxd_rt, init_prncpl_ex, lst_prncpl_ex,
+            crrnt2, ntnl2, crrnt1, ntnl1,
+            kis_prc, kap_prc, nic_prc, fnp_prc, lstyr_prc, avg_prc,
+            buy_pnl, buy_pnl_accnt, ystrdy_npv, tdy_npv, calc_blnc,
+            swp_asst_lblt, swp_asst_lblt_accnt, prmm_asst_lblt,
+            trd_dt, eff_dt, adjst_mtrty, inpt_mtrty,
+            mar, rcv_ytm, rcv_dur, pay_ytm, pay_dur, swap_dur,
+            prc_diff, avg_prc_usd, nd_yn, erly_exr_yn, erly_exr_dt,
+        ))
+
+    if new_rows:
+        for i in range(0, len(new_rows), BATCH_SIZE):
+            batch = new_rows[i:i + BATCH_SIZE]
+            execute_values(cur,
+                """INSERT INTO swap_prc (
+                    no, std_dt, fnd_cd, fnd_nm, obj_cd, obj_nm,
+                    prd_dvsn, prd_grp, asst_lvl, trd_tp, cntrprt, pstn,
+                    fxd_rt, init_prncpl_ex, lst_prncpl_ex,
+                    crrnt2, ntnl2, crrnt1, ntnl1,
+                    kis_prc, kap_prc, nic_prc, fnp_prc, lstyr_prc, avg_prc,
+                    buy_pnl, buy_pnl_accnt, ystrdy_npv, tdy_npv, calc_blnc,
+                    swp_asst_lblt, swp_asst_lblt_accnt, prmm_asst_lblt,
+                    trd_dt, eff_dt, adjst_mtrty, inpt_mtrty,
+                    mar, rcv_ytm, rcv_dur, pay_ytm, pay_dur, swap_dur,
+                    prc_diff, avg_prc_usd, nd_yn, erly_exr_yn, erly_exr_dt
+                ) VALUES %s""",
+                batch, page_size=BATCH_SIZE)
+        conn.commit()
+
+    cur.close()
+    print(f"  신규 INSERT: {len(new_rows)}건, 스킵(기존): {skipped}건")
+    return len(new_rows)
+
+
+def find_swap_prc_file(target_ts=None):
+    """6751_swap_prc 파일 찾기 (파일명 패턴: 6751_swap_prc__*.txt 또는 6751_swap_prc_*.txt)"""
+    all_txt = glob.glob(os.path.join(DB_DIR, '6751_swap_prc*.txt'))
+    if not all_txt:
+        return None
+    if target_ts:
+        for f in all_txt:
+            base = os.path.basename(f).lower()
+            rest = base.replace('6751_swap_prc', '')
+            digits = rest.replace('_', '').replace('.txt', '')
+            if digits == target_ts or digits.startswith(target_ts):
+                return f
+    return max(all_txt, key=os.path.getmtime)
+
+
 def main():
     target_ts = None
     if len(sys.argv) > 1 and sys.argv[1] == '--date' and len(sys.argv) > 2:
@@ -544,6 +667,14 @@ def main():
         else:
             print(f"  {table_name}: 파일 없음!")
 
+    # swap_prc (6751_swap_prc 패턴)
+    swap_prc_file = find_swap_prc_file(target_ts)
+    if swap_prc_file:
+        files_found['swap_prc'] = swap_prc_file
+        print(f"  swap_prc: {os.path.basename(swap_prc_file)}")
+    else:
+        print(f"  swap_prc: 파일 없음!")
+
     if not files_found:
         print("\n업로드할 파일이 없습니다.")
         return
@@ -552,6 +683,9 @@ def main():
     total = 0
     try:
         for table_name, filepath in files_found.items():
+            if table_name == 'swap_prc':
+                total += upload_swap_prc(conn, filepath)
+                continue
             fn = tables[table_name]
             total += fn(conn, filepath)
 

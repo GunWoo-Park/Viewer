@@ -1,8 +1,9 @@
 // app/dashboard/risk/page.tsx
 import { lusitana } from '@/app/ui/fonts';
-import { fetchGappingBtbDelta, fetchRiskDelta, fetchPnlrtpDetail } from '@/app/lib/data';
+import { fetchGappingBtbDelta, fetchRiskDelta, fetchPnlrtpDetail, fetchRiskSwapValuations } from '@/app/lib/data';
 import type { GappingDeltaSummary, PnlrtpRow } from '@/app/lib/data';
 import { KrwDeltaChart, UsdDeltaChart, TotalDeltaChart } from '@/app/ui/risk/delta-chart';
+import { DateSelector } from '@/app/ui/dashboard/date-selector';
 
 // 금액 포맷 헬퍼
 function formatDelta(value: number, format: 'krw' | 'usd'): string {
@@ -300,11 +301,18 @@ function PnlrtpCurveTable({
   );
 }
 
-export default async function RiskPage() {
-  const [gappingDelta, riskDelta, pnlrtpDetail] = await Promise.all([
+export default async function RiskPage({
+  searchParams,
+}: {
+  searchParams?: { date?: string };
+}) {
+  const selectedDate = searchParams?.date || '';
+
+  const [gappingDelta, riskDelta, pnlrtpDetail, swapValuations] = await Promise.all([
     fetchGappingBtbDelta(),
     fetchRiskDelta(),
     fetchPnlrtpDetail(),
+    fetchRiskSwapValuations(selectedDate || undefined),
   ]);
 
   // pnlrtp 커브별 그룹핑 (KRW → KTB → USD → UST 순)
@@ -322,9 +330,10 @@ export default async function RiskPage() {
   // 개별 커브 델타 (원 단위)
   const curves = riskDelta.latestCurves ?? { krw: 0, ktb: 0, usd: 0, ust: 0 };
 
-  const baseDateLabel = latestDelta
-    ? `${latestDelta.dateFull.slice(0, 4)}-${latestDelta.dateFull.slice(4, 6)}-${latestDelta.dateFull.slice(6, 8)}`
-    : '';
+  // swap_prc 날짜 목록으로 DateSelector 구성
+  const swapDates = swapValuations.availableDates; // YYYYMMDD 최신순
+  const swapDatesMmdd = swapDates.map((d) => `${d.slice(4, 6)}/${d.slice(6, 8)}`);
+  const currentSwapDate = swapValuations.selfIssued.stdDt || swapValuations.mtmHedge.stdDt || swapDates[0] || '';
 
   return (
     <main>
@@ -332,12 +341,67 @@ export default async function RiskPage() {
         <h1 className={`${lusitana.className} text-xl md:text-2xl dark:text-gray-100`}>
           RISK
         </h1>
-        {baseDateLabel && (
-          <div className="flex items-center gap-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1">
-            <span className="text-xs text-gray-500 dark:text-gray-400">기준일</span>
-            <span className="text-sm font-mono font-semibold text-gray-700 dark:text-gray-200">
-              {baseDateLabel}
-            </span>
+        {swapDates.length > 0 && (
+          <DateSelector
+            dates={swapDatesMmdd}
+            dateFull={swapDates}
+            current={currentSwapDate}
+          />
+        )}
+      </div>
+
+      {/* 스왑 유형별 평가금액 카드 */}
+      <div className="mb-6 grid gap-4 grid-cols-1 lg:grid-cols-2">
+        {/* 자체발행 부채 */}
+        {swapValuations.selfIssued.count > 0 && (
+          <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  자체발행 부채 평가금액
+                  <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500">
+                    ({swapValuations.selfIssued.count}건)
+                  </span>
+                </p>
+                <p className={`${lusitana.className} text-2xl font-bold ${
+                  swapValuations.selfIssued.totalPrc >= 0
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-rose-600 dark:text-rose-400'
+                }`}>
+                  {swapValuations.selfIssued.totalPrc >= 0 ? '+' : '-'}
+                  {formatDelta(swapValuations.selfIssued.totalPrc, 'krw')}
+                </p>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 px-2.5 py-0.5 text-xs font-medium">
+                자체발행
+              </span>
+            </div>
+          </div>
+        )}
+        {/* MTM헤지 */}
+        {swapValuations.mtmHedge.count > 0 && (
+          <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  MTM헤지 평가금액
+                  <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500">
+                    ({swapValuations.mtmHedge.count}건)
+                  </span>
+                </p>
+                <p className={`${lusitana.className} text-2xl font-bold ${
+                  swapValuations.mtmHedge.totalPrc >= 0
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-rose-600 dark:text-rose-400'
+                }`}>
+                  {swapValuations.mtmHedge.totalPrc >= 0 ? '+' : '-'}
+                  {formatDelta(swapValuations.mtmHedge.totalPrc, 'krw')}
+                </p>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2.5 py-0.5 text-xs font-medium">
+                MTM헤지
+              </span>
+            </div>
           </div>
         )}
       </div>
