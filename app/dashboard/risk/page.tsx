@@ -372,9 +372,19 @@ export default async function RiskPage({
                   {formatDelta(swapValuations.selfIssued.totalPrc, 'krw')}
                 </p>
               </div>
-              <span className="inline-flex items-center rounded-full bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 px-2.5 py-0.5 text-xs font-medium">
-                자체발행
-              </span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/api/risk-export?tp=self&date=${currentSwapDate}`}
+                  className="inline-flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-2 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  title="엑셀 다운로드"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                  XLSX
+                </a>
+                <span className="inline-flex items-center rounded-full bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 px-2.5 py-0.5 text-xs font-medium">
+                  자체발행
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -398,9 +408,19 @@ export default async function RiskPage({
                   {formatDelta(swapValuations.mtmHedge.totalPrc, 'krw')}
                 </p>
               </div>
-              <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2.5 py-0.5 text-xs font-medium">
-                MTM헤지
-              </span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/api/risk-export?tp=mtm&date=${currentSwapDate}`}
+                  className="inline-flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-2 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  title="엑셀 다운로드"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                  XLSX
+                </a>
+                <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2.5 py-0.5 text-xs font-medium">
+                  MTM헤지
+                </span>
+              </div>
             </div>
           </div>
         )}

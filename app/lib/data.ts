@@ -1167,6 +1167,79 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
   }
 }
 
+/**
+ * Wink(swap_prc) vs 보고손익(breakdownprc) 가격 차이 조회
+ * 공통 std_dt 기준, 차이가 임계값 이상인 종목만 반환
+ */
+export type PriceDiffRow = {
+  objCd: string;
+  cntrNm: string;
+  curr: string;
+  tp: string;
+  winkPrc: number;       // swap_prc avg_prc
+  reportPrc: number;     // breakdownprc SUM(avg_prc)
+  diff: number;          // wink - report
+  diffEok: number;       // 차이 억 단위
+};
+
+export async function fetchPriceDiff(stdDt?: string): Promise<{
+  rows: PriceDiffRow[];
+  stdDt: string;
+  totalDiff: number;
+}> {
+  noStore();
+  try {
+    // 공통 최신 날짜 결정
+    let targetDt = stdDt;
+    if (!targetDt) {
+      const dtRes = await sql`
+        SELECT MAX(s.std_dt) AS dt
+        FROM (SELECT DISTINCT std_dt FROM swap_prc WHERE fnd_cd = '10206020') s
+        JOIN (SELECT DISTINCT std_dt FROM breakdownprc) b ON b.std_dt = s.std_dt
+      `;
+      targetDt = String(dtRes.rows[0]?.dt || '');
+    }
+    if (!targetDt) return { rows: [], stdDt: '', totalDiff: 0 };
+
+    const result = await sql`
+      WITH swap AS (
+        SELECT obj_cd, avg_prc FROM swap_prc
+        WHERE std_dt = ${targetDt} AND fnd_cd = '10206020'
+      ),
+      bd AS (
+        SELECT obj_cd, SUM(avg_prc) AS avg_prc FROM breakdownprc
+        WHERE std_dt = ${targetDt} GROUP BY obj_cd
+      )
+      SELECT s.obj_cd, p.cntr_nm, p.curr, p.tp,
+             s.avg_prc AS wink_prc, b.avg_prc AS report_prc,
+             s.avg_prc - b.avg_prc AS diff
+      FROM swap s
+      JOIN bd b ON b.obj_cd = s.obj_cd
+      JOIN strucprdp p ON p.obj_cd = s.obj_cd AND p.fnd_cd = '10206020'
+      WHERE ABS(s.avg_prc - b.avg_prc) > 100
+      ORDER BY ABS(s.avg_prc - b.avg_prc) DESC
+    `;
+
+    const rows: PriceDiffRow[] = result.rows.map((r) => ({
+      objCd: String(r.obj_cd),
+      cntrNm: String(r.cntr_nm || ''),
+      curr: String(r.curr || 'KRW'),
+      tp: String(r.tp || ''),
+      winkPrc: Number(r.wink_prc),
+      reportPrc: Number(r.report_prc),
+      diff: Number(r.diff),
+      diffEok: Number(r.diff) / 100000000,
+    }));
+
+    const totalDiff = rows.reduce((s, r) => s + r.diff, 0);
+
+    return { rows, stdDt: targetDt, totalDiff };
+  } catch (error) {
+    console.error('fetchPriceDiff Error:', error);
+    return { rows: [], stdDt: '', totalDiff: 0 };
+  }
+}
+
 // =============================================
 // PnL 관련 함수 (breakdownprc + excpnp)
 // =============================================
