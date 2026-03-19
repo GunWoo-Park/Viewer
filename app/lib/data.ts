@@ -1831,6 +1831,7 @@ export async function fetchPnlTrend(): Promise<{
     const couponByTypeResult = await sql`
       SELECT
         e.pay_dt,
+        s.tp,
         COALESCE(NULLIF(s.type1, ''), '기타') AS type1,
         CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) AS struct_type,
         s.curr,
@@ -1838,13 +1839,16 @@ export async function fetchPnlTrend(): Promise<{
       FROM excpnp e
       JOIN strucprdp s ON s.obj_cd = e.obj_cd
       WHERE s.tp != '자체발행'
-      GROUP BY e.pay_dt, s.type1, s.type2, s.type3, s.curr
+      GROUP BY e.pay_dt, s.tp, s.type1, s.type2, s.type3, s.curr
     `;
     const couponByTypeMap: Record<string, Record<string, Record<string, number>>> = {};
     // struct_type별 쿠폰 맵도 병렬 구축
     const couponByStructTypeMap: Record<string, Record<string, Record<string, number>>> = {};
+    // 캐리 전용 struct_type별 쿠폰 맵
+    const carryCouponByStructTypeMap: Record<string, Record<string, Record<string, number>>> = {};
     for (const r of couponByTypeResult.rows) {
       const dt = String(r.pay_dt);
+      const tp = String(r.tp);
       const type1 = String(r.type1).replace(/\\/g, '₩');
       const structType = (String(r.struct_type) || type1).replace(/\\/g, '₩');
       const curr = String(r.curr);
@@ -1857,6 +1861,12 @@ export async function fetchPnlTrend(): Promise<{
       if (!couponByStructTypeMap[dt]) couponByStructTypeMap[dt] = {};
       if (!couponByStructTypeMap[dt][structType]) couponByStructTypeMap[dt][structType] = {};
       couponByStructTypeMap[dt][structType][curr] = (couponByStructTypeMap[dt][structType][curr] || 0) + coupon;
+      // 캐리 전용
+      if (tp === '캐리') {
+        if (!carryCouponByStructTypeMap[dt]) carryCouponByStructTypeMap[dt] = {};
+        if (!carryCouponByStructTypeMap[dt][structType]) carryCouponByStructTypeMap[dt][structType] = {};
+        carryCouponByStructTypeMap[dt][structType][curr] = (carryCouponByStructTypeMap[dt][structType][curr] || 0) + coupon;
+      }
     }
 
     // 일별 PnL 계산 (연속 날짜 쌍에서 양쪽 모두 존재하는 종목만 비교)
@@ -1930,6 +1940,18 @@ export async function fetchPnlTrend(): Promise<{
             allStructTypesSet.add(structType);
             for (const [, coupon] of Object.entries(currMap)) {
               structTypePnlKrw[structType] = (structTypePnlKrw[structType] || 0) + coupon;
+            }
+          }
+        }
+      }
+
+      // 캐리 전용 struct_type별 쿠폰 추가
+      for (const [payDt, stMap] of Object.entries(carryCouponByStructTypeMap)) {
+        if (payDt > prevDt && payDt <= currDt) {
+          for (const [structType, currMap] of Object.entries(stMap)) {
+            allCarryStructTypesSet.add(structType);
+            for (const [, coupon] of Object.entries(currMap)) {
+              carryStructTypePnlKrw[structType] = (carryStructTypePnlKrw[structType] || 0) + coupon;
             }
           }
         }
