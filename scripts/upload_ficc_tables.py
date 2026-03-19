@@ -624,6 +624,90 @@ def upload_swap_prc(conn, filepath):
     return len(new_rows)
 
 
+def upload_strucfe_accint(conn, filepath):
+    """strucfe_accint: 배치 UPSERT (obj_cd + leg_tp + std_dt 기준)
+    파일명 패턴: struc_accint_*.txt (테이블명은 strucfe_accint)
+    파일 컬럼이 DB보다 많으므로 필요한 컬럼만 매핑
+    """
+    print(f"\n[strucfe_accint] {os.path.basename(filepath)}")
+    headers, rows = read_tsv(filepath)
+    cur = conn.cursor()
+
+    # 헤더 인덱스 매핑
+    hmap = {h: i for i, h in enumerate(headers)}
+
+    all_rows = []
+    for row in rows:
+        obj_cd = clean(row[hmap.get('OBJ_CD', 0)])
+        if not obj_cd:
+            continue
+        nx_cd = clean(row[hmap.get('NX_CD', 1)])
+        eval_mdul_cd = clean(row[hmap.get('EVAL_MDUL_CD', 2)])
+        leg_tp = clean(row[hmap.get('LEG_TP', 3)])
+        std_dt = clean(row[hmap.get('STD_DT', 7)])
+        eval_dt = clean(row[hmap.get('EVAL_DT', 8)])
+        cf_num_val = num(row[hmap.get('CF_NUM', 9)])
+        reg_dtm = clean(row[hmap.get('REG_DTM', 10)])
+        regr_id = clean(row[hmap.get('REGR_ID', 11)])
+        mdfy_dtm = clean(row[hmap.get('MDFY_DTM', 12)])
+        mdfyr_id = clean(row[hmap.get('MDFYR_ID', 13)])
+        str_dt = clean(row[hmap.get('STR_DT', 14)])
+        end_dt = clean(row[hmap.get('END_DT', 15)])
+        pay_dt = clean(row[hmap.get('PAY_DT', 16)])
+        rate = num(row[hmap.get('RATE', 20)])
+        cpn = num(row[hmap.get('CPN', 21)])
+        accint = num(row[hmap.get('ACCINT', 22)])
+
+        if not std_dt or not leg_tp:
+            continue
+
+        all_rows.append((
+            obj_cd, nx_cd, eval_mdul_cd, leg_tp, std_dt, eval_dt,
+            int(cf_num_val) if cf_num_val else None,
+            reg_dtm, regr_id, mdfy_dtm, mdfyr_id,
+            str_dt, end_dt, pay_dt,
+            rate or 0, cpn or 0, accint or 0,
+        ))
+
+    if all_rows:
+        for i in range(0, len(all_rows), BATCH_SIZE):
+            batch = all_rows[i:i + BATCH_SIZE]
+            execute_values(cur,
+                """INSERT INTO strucfe_accint (
+                    obj_cd, nx_cd, eval_mdul_cd, leg_tp, std_dt, eval_dt,
+                    cf_num, reg_dtm, regr_id, mdfy_dtm, mdfyr_id,
+                    str_dt, end_dt, pay_dt, rate, cpn, accint
+                ) VALUES %s
+                ON CONFLICT (obj_cd, leg_tp, std_dt) DO UPDATE SET
+                    nx_cd=EXCLUDED.nx_cd, eval_mdul_cd=EXCLUDED.eval_mdul_cd,
+                    eval_dt=EXCLUDED.eval_dt, cf_num=EXCLUDED.cf_num,
+                    reg_dtm=EXCLUDED.reg_dtm, regr_id=EXCLUDED.regr_id,
+                    mdfy_dtm=EXCLUDED.mdfy_dtm, mdfyr_id=EXCLUDED.mdfyr_id,
+                    str_dt=EXCLUDED.str_dt, end_dt=EXCLUDED.end_dt, pay_dt=EXCLUDED.pay_dt,
+                    rate=EXCLUDED.rate, cpn=EXCLUDED.cpn, accint=EXCLUDED.accint""",
+                batch, page_size=BATCH_SIZE)
+        conn.commit()
+
+    cur.close()
+    print(f"  UPSERT: {len(all_rows)}건")
+    return len(all_rows)
+
+
+def find_struc_accint_file(target_ts=None):
+    """struc_accint 파일 찾기 (파일명: struc_accint_*.txt, DB 테이블: strucfe_accint)"""
+    all_txt = glob.glob(os.path.join(DB_DIR, 'struc_accint*.txt'))
+    if not all_txt:
+        return None
+    if target_ts:
+        for f in all_txt:
+            base = os.path.basename(f).lower()
+            rest = base.replace('struc_accint', '')
+            digits = rest.replace('_', '').replace('.txt', '')
+            if digits == target_ts or digits.startswith(target_ts):
+                return f
+    return max(all_txt, key=os.path.getmtime)
+
+
 def find_swap_prc_file(target_ts=None):
     """6751_swap_prc 파일 찾기 (파일명 패턴: 6751_swap_prc__*.txt 또는 6751_swap_prc_*.txt)"""
     all_txt = glob.glob(os.path.join(DB_DIR, '6751_swap_prc*.txt'))
@@ -675,6 +759,14 @@ def main():
     else:
         print(f"  swap_prc: 파일 없음!")
 
+    # strucfe_accint (struc_accint_*.txt 패턴)
+    accint_file = find_struc_accint_file(target_ts)
+    if accint_file:
+        files_found['strucfe_accint'] = accint_file
+        print(f"  strucfe_accint: {os.path.basename(accint_file)}")
+    else:
+        print(f"  strucfe_accint: 파일 없음!")
+
     if not files_found:
         print("\n업로드할 파일이 없습니다.")
         return
@@ -685,6 +777,9 @@ def main():
         for table_name, filepath in files_found.items():
             if table_name == 'swap_prc':
                 total += upload_swap_prc(conn, filepath)
+                continue
+            if table_name == 'strucfe_accint':
+                total += upload_strucfe_accint(conn, filepath)
                 continue
             fn = tables[table_name]
             total += fn(conn, filepath)

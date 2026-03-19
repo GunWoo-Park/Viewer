@@ -3,6 +3,7 @@ import { Metadata } from 'next';
 import Search from '@/app/ui/search';
 import CallFilter from '@/app/ui/strucprdm/call-filter';
 import TpFilter from '@/app/ui/strucprdm/tp-filter';
+import ExportButton from '@/app/ui/strucprdm/export-button';
 import DatePicker from '@/app/ui/strucprdm/date-picker';
 import SummaryCards from '@/app/ui/strucprdm/summary-cards';
 import DistributionCharts from '@/app/ui/strucprdm/distribution-charts';
@@ -89,6 +90,7 @@ export default async function StrucprdmPage({
           <div className="flex items-center gap-3">
             <TpFilter />
             <CallFilter />
+            <ExportButton />
           </div>
         </div>
         <Suspense key={query + callFilter + tpFilter + pnlDate} fallback={<TableSkeleton />}>

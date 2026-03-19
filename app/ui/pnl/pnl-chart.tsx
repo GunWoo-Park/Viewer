@@ -499,7 +499,7 @@ export function CarryYtdPnlChart({
           const ty = padT + 10;
           const typeEntries = allCarryStructTypes
             .filter((t) => d.byStructType[t] && Math.abs(d.byStructType[t]) > 0.001)
-            .sort((a, b) => (d.byStructType[b] || 0) - (d.byStructType[a] || 0));
+            .sort((a, b) => Math.abs(d.byStructType[b] || 0) - Math.abs(d.byStructType[a] || 0));
           const shownTypes = typeEntries.slice(0, 5);
           const boxH = 46 + shownTypes.length * 16;
           return (
@@ -735,39 +735,52 @@ export function WtdPnlChart({
           return <g key={i}>{bars}</g>;
         })}
 
-        {/* Daily PnL 라인 (파란색) */}
+        {/* Daily PnL 라인 (파란색) + WTD 누적 PnL 라인 (앰버) */}
         <path d={dailyLinePath} fill="none" stroke="#3B82F6" strokeWidth={2.5} strokeLinejoin="round" />
-        {wtdDataWithCum.map((d, i) => (
-          <g key={`daily-${i}`}>
-            <circle cx={toX(i)} cy={toY(d.daily)} r={4} fill="#3B82F6" stroke="white" strokeWidth={1.5} />
-            <text
-              x={toX(i)}
-              y={toY(d.daily) - 10}
-              textAnchor="middle"
-              className="fill-blue-500 dark:fill-blue-400"
-              style={{ fontSize: 10, fontWeight: 600 }}
-            >
-              {d.daily > 0 ? '+' : ''}{d.daily.toFixed(2)}
-            </text>
-          </g>
-        ))}
-
-        {/* WTD 누적 PnL 라인 (앰버) */}
         <path d={cumLinePath} fill="none" stroke="#F59E0B" strokeWidth={2.5} strokeLinejoin="round" strokeDasharray="6 3" />
-        {wtdDataWithCum.map((d, i) => (
-          <g key={`cum-${i}`}>
-            <circle cx={toX(i)} cy={toY(d.wtdCumulative)} r={4} fill="#F59E0B" stroke="white" strokeWidth={1.5} />
-            <text
-              x={toX(i)}
-              y={toY(d.wtdCumulative) + 18}
-              textAnchor="middle"
-              className="fill-amber-500 dark:fill-amber-400"
-              style={{ fontSize: 10, fontWeight: 600 }}
-            >
-              {d.wtdCumulative > 0 ? '+' : ''}{d.wtdCumulative.toFixed(2)}
-            </text>
-          </g>
-        ))}
+        {/* 점 + 레이블 (겹침 방지) */}
+        {wtdDataWithCum.map((d, i) => {
+          const cx = toX(i);
+          const dailyY = toY(d.daily);
+          const cumY = toY(d.wtdCumulative);
+          // 두 레이블 간 겹침 방지: 가까우면 위/아래로 벌림
+          const gap = Math.abs(dailyY - cumY);
+          const minGap = 18;
+          let dailyLabelY: number;
+          let cumLabelY: number;
+          if (gap < minGap) {
+            // 겹침 → Daily는 위, WTD는 아래로 분리
+            const mid = (dailyY + cumY) / 2;
+            dailyLabelY = mid - minGap / 2 - 4;
+            cumLabelY = mid + minGap / 2 + 10;
+          } else if (dailyY < cumY) {
+            // Daily가 위 → Daily 레이블 위, WTD 레이블 아래
+            dailyLabelY = dailyY - 10;
+            cumLabelY = cumY + 16;
+          } else {
+            // WTD가 위 → WTD 레이블 위, Daily 레이블 아래
+            dailyLabelY = dailyY + 16;
+            cumLabelY = cumY - 10;
+          }
+          // 캔버스 경계 클램핑
+          dailyLabelY = Math.max(padT + 8, Math.min(dailyLabelY, padT + chartH - 4));
+          cumLabelY = Math.max(padT + 8, Math.min(cumLabelY, padT + chartH - 4));
+
+          return (
+            <g key={`labels-${i}`}>
+              <circle cx={cx} cy={dailyY} r={4} fill="#3B82F6" stroke="white" strokeWidth={1.5} />
+              <text x={cx} y={dailyLabelY} textAnchor="middle"
+                className="fill-blue-500 dark:fill-blue-400" style={{ fontSize: 10, fontWeight: 600 }}>
+                {d.daily > 0 ? '+' : ''}{d.daily.toFixed(2)}
+              </text>
+              <circle cx={cx} cy={cumY} r={4} fill="#F59E0B" stroke="white" strokeWidth={1.5} />
+              <text x={cx} y={cumLabelY} textAnchor="middle"
+                className="fill-amber-500 dark:fill-amber-400" style={{ fontSize: 10, fontWeight: 600 }}>
+                {d.wtdCumulative > 0 ? '+' : ''}{d.wtdCumulative.toFixed(2)}
+              </text>
+            </g>
+          );
+        })}
 
         {/* X축 날짜 라벨 */}
         {wtdDataWithCum.map((d, i) => (
@@ -804,7 +817,7 @@ export function WtdPnlChart({
           const ty = padT + 10;
           const typeEntries = activeStructTypes
             .filter((st) => d.byStructType[st] && Math.abs(d.byStructType[st]) > 0.001)
-            .sort((a, b) => (d.byStructType[b] || 0) - (d.byStructType[a] || 0));
+            .sort((a, b) => Math.abs(d.byStructType[b] || 0) - Math.abs(d.byStructType[a] || 0));
           const shownTypes = typeEntries.slice(0, 6);
           const boxH = 46 + shownTypes.length * 16;
           return (
@@ -1029,29 +1042,46 @@ export function CarryWtdPnlChart({
           return <g key={i}>{bars}</g>;
         })}
 
-        {/* Daily PnL 라인 (오렌지) */}
+        {/* Daily PnL 라인 (오렌지) + WTD 누적 라인 (앰버 점선) */}
         <path d={dailyLinePath} fill="none" stroke="#EA580C" strokeWidth={2.5} strokeLinejoin="round" />
-        {wtdDataWithCum.map((d, i) => (
-          <g key={`daily-${i}`}>
-            <circle cx={toX(i)} cy={toY(d.daily)} r={4} fill="#EA580C" stroke="white" strokeWidth={1.5} />
-            <text x={toX(i)} y={toY(d.daily) - 10} textAnchor="middle"
-              className="fill-orange-600 dark:fill-orange-400" style={{ fontSize: 10, fontWeight: 600 }}>
-              {d.daily > 0 ? '+' : ''}{d.daily.toFixed(2)}
-            </text>
-          </g>
-        ))}
-
-        {/* WTD 누적 라인 (앰버 점선) */}
         <path d={cumLinePath} fill="none" stroke="#F59E0B" strokeWidth={2.5} strokeLinejoin="round" strokeDasharray="6 3" />
-        {wtdDataWithCum.map((d, i) => (
-          <g key={`cum-${i}`}>
-            <circle cx={toX(i)} cy={toY(d.wtdCumulative)} r={4} fill="#F59E0B" stroke="white" strokeWidth={1.5} />
-            <text x={toX(i)} y={toY(d.wtdCumulative) + 18} textAnchor="middle"
-              className="fill-amber-500 dark:fill-amber-400" style={{ fontSize: 10, fontWeight: 600 }}>
-              {d.wtdCumulative > 0 ? '+' : ''}{d.wtdCumulative.toFixed(2)}
-            </text>
-          </g>
-        ))}
+        {/* 점 + 레이블 (겹침 방지) */}
+        {wtdDataWithCum.map((d, i) => {
+          const cx = toX(i);
+          const dailyY = toY(d.daily);
+          const cumY = toY(d.wtdCumulative);
+          const gap = Math.abs(dailyY - cumY);
+          const minGap = 18;
+          let dailyLabelY: number;
+          let cumLabelY: number;
+          if (gap < minGap) {
+            const mid = (dailyY + cumY) / 2;
+            dailyLabelY = mid - minGap / 2 - 4;
+            cumLabelY = mid + minGap / 2 + 10;
+          } else if (dailyY < cumY) {
+            dailyLabelY = dailyY - 10;
+            cumLabelY = cumY + 16;
+          } else {
+            dailyLabelY = dailyY + 16;
+            cumLabelY = cumY - 10;
+          }
+          dailyLabelY = Math.max(padT + 8, Math.min(dailyLabelY, padT + chartH - 4));
+          cumLabelY = Math.max(padT + 8, Math.min(cumLabelY, padT + chartH - 4));
+          return (
+            <g key={`labels-${i}`}>
+              <circle cx={cx} cy={dailyY} r={4} fill="#EA580C" stroke="white" strokeWidth={1.5} />
+              <text x={cx} y={dailyLabelY} textAnchor="middle"
+                className="fill-orange-600 dark:fill-orange-400" style={{ fontSize: 10, fontWeight: 600 }}>
+                {d.daily > 0 ? '+' : ''}{d.daily.toFixed(2)}
+              </text>
+              <circle cx={cx} cy={cumY} r={4} fill="#F59E0B" stroke="white" strokeWidth={1.5} />
+              <text x={cx} y={cumLabelY} textAnchor="middle"
+                className="fill-amber-500 dark:fill-amber-400" style={{ fontSize: 10, fontWeight: 600 }}>
+                {d.wtdCumulative > 0 ? '+' : ''}{d.wtdCumulative.toFixed(2)}
+              </text>
+            </g>
+          );
+        })}
 
         {/* X축 날짜 */}
         {wtdDataWithCum.map((d, i) => (
@@ -1083,7 +1113,7 @@ export function CarryWtdPnlChart({
           const ty = padT + 10;
           const typeEntries = activeStructTypes
             .filter((st) => d.byStructType[st] && Math.abs(d.byStructType[st]) > 0.001)
-            .sort((a, b) => (d.byStructType[b] || 0) - (d.byStructType[a] || 0));
+            .sort((a, b) => Math.abs(d.byStructType[b] || 0) - Math.abs(d.byStructType[a] || 0));
           const shownTypes = typeEntries.slice(0, 6);
           const boxH = 46 + shownTypes.length * 16;
           return (
