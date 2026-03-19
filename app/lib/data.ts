@@ -1747,6 +1747,7 @@ export async function fetchPnlTrend(): Promise<{
   allTypes: string[];
   allStructTypes: string[];
   allCarryStructTypes: string[];
+  missingMarDates: string[];  // MAR 환율 누락 날짜
 }> {
   noStore();
 
@@ -1756,7 +1757,7 @@ export async function fetchPnlTrend(): Promise<{
       SELECT DISTINCT std_dt FROM breakdownprc ORDER BY std_dt ASC
     `;
     const allDates = datesResult.rows.map((r) => String(r.std_dt));
-    if (allDates.length < 2) return { trend: [], carryTrend: [], latestDate: '', allDates: [], allTypes: [], allStructTypes: [], allCarryStructTypes: [] };
+    if (allDates.length < 2) return { trend: [], carryTrend: [], latestDate: '', allDates: [], allTypes: [], allStructTypes: [], allCarryStructTypes: [], missingMarDates: [] };
 
     // 모든 MAR 데이터 조회
     const marResult = await sql`
@@ -1777,6 +1778,9 @@ export async function fetchPnlTrend(): Promise<{
       }
       return bestVal;
     }
+
+    // USD 종목이 있는 날짜에서 MAR 환율 누락 감지
+    const missingMarDates: string[] = [];
 
     // 종목별 날짜×MTM + struct_type을 한번에 가져옴 (N+1 쿼리 회피)
     const allMtmResult = await sql`
@@ -1884,6 +1888,12 @@ export async function fetchPnlTrend(): Promise<{
       const currDt = allDates[i];
       const currMar = getMarBefore(currDt);
       const prevMarVal = getMarBefore(prevDt);
+
+      // USD 종목 존재 시 MAR 누락 감지
+      const hasUsd = Object.values(objMap).some((e) => e.curr === 'USD' && e.byDate[currDt] !== undefined);
+      if (hasUsd && (currMar === 0 || prevMarVal === 0)) {
+        missingMarDates.push(currDt);
+      }
 
       // type1별 / struct_type별 PnL 집계
       const typePnlKrw: Record<string, number> = {};
@@ -2004,10 +2014,10 @@ export async function fetchPnlTrend(): Promise<{
     const allTypes = Array.from(allTypesSet).sort();
     const allStructTypes = Array.from(allStructTypesSet).sort();
     const allCarryStructTypes = Array.from(allCarryStructTypesSet).sort();
-    return { trend, carryTrend, latestDate: allDates[allDates.length - 1], allDates, allTypes, allStructTypes, allCarryStructTypes };
+    return { trend, carryTrend, latestDate: allDates[allDates.length - 1], allDates, allTypes, allStructTypes, allCarryStructTypes, missingMarDates };
   } catch (error) {
     console.error('fetchPnlTrend Error:', error);
-    return { trend: [], carryTrend: [], latestDate: '', allDates: [], allTypes: [], allStructTypes: [], allCarryStructTypes: [] };
+    return { trend: [], carryTrend: [], latestDate: '', allDates: [], allTypes: [], allStructTypes: [], allCarryStructTypes: [], missingMarDates: [] };
   }
 }
 

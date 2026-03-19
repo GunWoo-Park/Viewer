@@ -69,7 +69,7 @@ function PnlSummaryCard({
 // 통합 서버 래퍼: 모든 데이터를 한 번에 가져와서 렌더링
 async function PnlDashboardContent({ pnlDate }: { pnlDate?: string }) {
   const [
-    { trend, carryTrend, latestDate, allTypes, allStructTypes, allCarryStructTypes },
+    { trend, carryTrend, latestDate, allTypes, allStructTypes, allCarryStructTypes, missingMarDates },
     typeSummary,
     availableDates,
     priceDiff,
@@ -136,6 +136,28 @@ async function PnlDashboardContent({ pnlDate }: { pnlDate?: string }) {
           </div>
         )}
       </div>
+
+      {/* MAR 환율 누락 알림 */}
+      {missingMarDates.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                MAR 환율 누락
+              </p>
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                USD 종목의 PnL 계산에 필요한 MAR 환율(eq_unasp)이 누락되어 해당 일자의 USD PnL이 부정확할 수 있습니다.
+              </p>
+              <p className="text-xs font-mono text-amber-500 dark:text-amber-500 mt-1">
+                누락 일자: {missingMarDates.map((d) => `${d.slice(4,6)}/${d.slice(6,8)}`).join(', ')}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PnL 요약 카드 */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

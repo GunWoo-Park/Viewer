@@ -349,11 +349,11 @@ export function GapBubbleChart({
               </div>
               <TrendMiniChart data={selectedTrend} color={getColor(selectedItem.structType)} />
 
-              {/* 괴리 상위 3개 종목 */}
+              {/* MTM 헤지 불일치 상위 종목 */}
               {topProducts.length > 0 && (
                 <div className="mt-3 border-t border-gray-200 dark:border-gray-700 pt-3">
                   <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 mb-2">
-                    괴리 상위 {topProducts.length}개 종목
+                    MTM 헤지 불일치 상위 {topProducts.length}개 종목
                   </p>
                   <div className="space-y-2">
                     {topProducts.map((p, i) => {
