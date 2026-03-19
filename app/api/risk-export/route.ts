@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
           JOIN swap_prc s ON s.obj_cd = p.obj_cd AND s.std_dt = ${targetDt} AND s.fnd_cd = '10206020'
           WHERE p.asst_lblt = '부채' AND p.tp = '자체발행' AND p.fnd_cd = '10206020'
             AND (p.type4 IS NULL OR p.type4 NOT IN ('Index', 'Floater'))
+            AND (p.struct_cond IS NULL OR p.struct_cond NOT ILIKE '%UST%')
           ORDER BY s.avg_prc ASC
         `
       : await sql`

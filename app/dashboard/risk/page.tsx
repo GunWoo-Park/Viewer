@@ -351,11 +351,9 @@ export default async function RiskPage({
         )}
       </div>
 
-      {/* SPC 담보 대상 평가금액 한도 모니터링 */}
+      {/* 부채 평가금액 한도 모니터링 */}
       <div className="mb-6">
         <LimitGauge
-          spcTotalEok={swapValuations.spcTotal.totalPrc / 1e8}
-          spcTotalCount={swapValuations.spcTotal.count}
           selfIssuedEok={swapValuations.selfIssued.totalPrc / 1e8}
           selfIssuedCount={swapValuations.selfIssued.count}
           mtmHedgeEok={swapValuations.mtmHedge.totalPrc / 1e8}

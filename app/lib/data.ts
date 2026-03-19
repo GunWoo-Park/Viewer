@@ -1096,64 +1096,10 @@ export async function fetchUsdMarRates(): Promise<Record<string, number>> {
 }
 
 /**
- * risk/ 폴더의 최신 엑셀에서 SPC담보관리대상=TRUE + 매도 + 미조기상환 종목코드 추출
- * DB만으로는 SPC 지정 여부를 판별할 수 없으므로 엑셀 원본 참조
- */
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const XLSX_MOD = require('xlsx');
-const FS_MOD = require('fs');
-const PATH_MOD = require('path');
-
-function getSpcTargetCodesSync(): string[] {
-  try {
-    const riskDir = PATH_MOD.join(process.cwd(), 'risk');
-    if (!FS_MOD.existsSync(riskDir)) return [];
-
-    const files = FS_MOD.readdirSync(riskDir)
-      .filter((f: string) => f.startsWith('FICC운용담당') && f.endsWith('.xlsx') && !f.startsWith('~$'))
-      .sort()
-      .reverse();
-    if (files.length === 0) return [];
-
-    const filePath = PATH_MOD.join(riskDir, files[0]);
-    const wb = XLSX_MOD.readFile(filePath, { sheets: '구조화_자체헤지' });
-    const ws = wb.Sheets['구조화_자체헤지'];
-    if (!ws) return [];
-
-    const rows: Record<string, unknown>[] = XLSX_MOD.utils.sheet_to_json(ws, { defval: '' });
-    const codes: string[] = [];
-    for (const r of rows) {
-      const spc = r['SPC담보관리대상'];
-      const tradeType = String(r['매매구분'] || '');
-      const earlyDt = String(r['조기상환행사일'] || '').trim();
-      const objCd = String(r['종목코드'] || '');
-      if ((spc === true || spc === 1 || spc === 'TRUE') && tradeType === '매도' && !earlyDt && objCd) {
-        codes.push(objCd);
-      }
-    }
-    return codes;
-  } catch (error) {
-    console.error('getSpcTargetCodes Error:', error);
-    return [];
-  }
-}
-
-// 캐싱: 서버 시작 후 한번만 읽기 (파일이 변경되면 서버 재시작 필요)
-let _spcCodesCache: string[] | null = null;
-async function getSpcTargetCodes(): Promise<string[]> {
-  if (_spcCodesCache === null) {
-    _spcCodesCache = getSpcTargetCodesSync();
-    console.log(`[SPC] 엑셀에서 ${_spcCodesCache.length}건 로드`);
-  }
-  return _spcCodesCache;
-}
-
-/**
  * RISK 탭 상단 카드용: 스왑 유형별 평가금액 합계
- * - 자체발행 부채: asst_lblt='부채' AND tp='자체발행'
+ * - 자체발행 부채: asst_lblt='부채' AND tp='자체발행' (Index, Floater 제외)
  * - MTM헤지: tp='MTM' (자산스왑 MTM 변동성 상쇄 목적)
- * - SPC 담보 대상: 엑셀에서 SPC=TRUE인 종목 기준
- * swap_prc 최신 avg_prc 기준
+ * swap_prc 기준, 한도 모니터링은 자체발행 + MTM헤지 합산
  */
 export type SwapTypeValuation = {
   totalPrc: number;
@@ -1164,7 +1110,6 @@ export type SwapTypeValuation = {
 export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
   selfIssued: SwapTypeValuation;
   mtmHedge: SwapTypeValuation;
-  spcTotal: SwapTypeValuation;  // SPC 담보 대상 합산 (엑셀 H33 동일 로직)
   availableDates: string[];
 }> {
   noStore();
@@ -1177,7 +1122,7 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
     const availableDates = datesResult.rows.map((r) => String(r.std_dt));
     const targetDt = stdDt && availableDates.includes(stdDt) ? stdDt : availableDates[0] || '';
 
-    const [selfResult, mtmResult, spcResult] = await Promise.all([
+    const [selfResult, mtmResult] = await Promise.all([
       sql`
         SELECT COALESCE(SUM(s.avg_prc), 0) AS total_prc,
                COUNT(DISTINCT p.obj_cd) AS cnt,
@@ -1187,6 +1132,7 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
         WHERE p.asst_lblt = '부채' AND p.tp = '자체발행' AND p.fnd_cd = '10206020'
           AND s.fnd_cd = '10206020'
           AND (p.type4 IS NULL OR p.type4 NOT IN ('Index', 'Floater'))
+          AND (p.struct_cond IS NULL OR p.struct_cond NOT ILIKE '%UST%')
       `,
       sql`
         SELECT COALESCE(SUM(s.avg_prc), 0) AS total_prc,
@@ -1198,27 +1144,10 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
           AND (p.call_yn = 'N' OR p.call_yn IS NULL)
           AND s.fnd_cd = '10206020'
       `,
-      // SPC 담보 대상 합산: risk/ 폴더의 최신 엑셀에서 SPC=TRUE 종목 목록 추출 후 집계
-      (async () => {
-        const spcCodes = await getSpcTargetCodes();
-        if (spcCodes.length === 0) {
-          return { rows: [{ total_prc: 0, cnt: 0, latest_dt: '' }] };
-        }
-        return sql`
-          SELECT COALESCE(SUM(s.avg_prc), 0) AS total_prc,
-                 COUNT(DISTINCT p.obj_cd) AS cnt,
-                 MAX(s.std_dt) AS latest_dt
-          FROM strucprdp p
-          JOIN swap_prc s ON s.obj_cd = p.obj_cd AND s.std_dt = ${targetDt}
-          WHERE p.obj_cd = ANY(${spcCodes})
-            AND s.fnd_cd = '10206020'
-        `;
-      })(),
     ]);
 
     const s = selfResult.rows[0];
     const m = mtmResult.rows[0];
-    const spc = spcResult.rows[0];
     return {
       selfIssued: {
         totalPrc: Number(s?.total_prc || 0),
@@ -1230,11 +1159,6 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
         count: Number(m?.cnt || 0),
         stdDt: String(m?.latest_dt || ''),
       },
-      spcTotal: {
-        totalPrc: Number(spc?.total_prc || 0),
-        count: Number(spc?.cnt || 0),
-        stdDt: String(spc?.latest_dt || ''),
-      },
       availableDates,
     };
   } catch (error) {
@@ -1242,7 +1166,6 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
     return {
       selfIssued: { totalPrc: 0, count: 0, stdDt: '' },
       mtmHedge: { totalPrc: 0, count: 0, stdDt: '' },
-      spcTotal: { totalPrc: 0, count: 0, stdDt: '' },
       availableDates: [],
     };
   }
