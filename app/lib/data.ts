@@ -1110,22 +1110,20 @@ export type SwapTypeValuation = {
 export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
   selfIssued: SwapTypeValuation;
   mtmHedge: SwapTypeValuation;
+  spcTotal: SwapTypeValuation;  // SPC 담보 대상 합산 (엑셀 H33 동일 로직)
   availableDates: string[];
 }> {
   noStore();
   try {
-    // swap_prc에서 조회 가능한 날짜 목록
     const datesResult = await sql`
       SELECT DISTINCT std_dt FROM swap_prc
       WHERE fnd_cd = '10206020'
       ORDER BY std_dt DESC
     `;
     const availableDates = datesResult.rows.map((r) => String(r.std_dt));
-
-    // 조회 대상 날짜 결정
     const targetDt = stdDt && availableDates.includes(stdDt) ? stdDt : availableDates[0] || '';
 
-    const [selfResult, mtmResult] = await Promise.all([
+    const [selfResult, mtmResult, spcResult] = await Promise.all([
       sql`
         SELECT COALESCE(SUM(s.avg_prc), 0) AS total_prc,
                COUNT(DISTINCT p.obj_cd) AS cnt,
@@ -1146,10 +1144,25 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
           AND (p.call_yn = 'N' OR p.call_yn IS NULL)
           AND s.fnd_cd = '10206020'
       `,
+      // SPC 담보 대상 합산: 부채 + 미콜 + 캐리 제외 + Index(종목수) 제외
+      // 엑셀 H33 로직: SPC담보관리대상=TRUE, 매도, 미조기상환
+      sql`
+        SELECT COALESCE(SUM(s.avg_prc), 0) AS total_prc,
+               COUNT(DISTINCT p.obj_cd) AS cnt,
+               MAX(s.std_dt) AS latest_dt
+        FROM strucprdp p
+        JOIN swap_prc s ON s.obj_cd = p.obj_cd AND s.std_dt = ${targetDt}
+        WHERE p.asst_lblt = '부채' AND p.fnd_cd = '10206020'
+          AND (p.call_yn = 'N' OR p.call_yn IS NULL)
+          AND p.tp != '캐리'
+          AND NOT (p.tp = '자체발행' AND p.type4 = 'Index')
+          AND s.fnd_cd = '10206020'
+      `,
     ]);
 
     const s = selfResult.rows[0];
     const m = mtmResult.rows[0];
+    const spc = spcResult.rows[0];
     return {
       selfIssued: {
         totalPrc: Number(s?.total_prc || 0),
@@ -1161,6 +1174,11 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
         count: Number(m?.cnt || 0),
         stdDt: String(m?.latest_dt || ''),
       },
+      spcTotal: {
+        totalPrc: Number(spc?.total_prc || 0),
+        count: Number(spc?.cnt || 0),
+        stdDt: String(spc?.latest_dt || ''),
+      },
       availableDates,
     };
   } catch (error) {
@@ -1168,6 +1186,7 @@ export async function fetchRiskSwapValuations(stdDt?: string): Promise<{
     return {
       selfIssued: { totalPrc: 0, count: 0, stdDt: '' },
       mtmHedge: { totalPrc: 0, count: 0, stdDt: '' },
+      spcTotal: { totalPrc: 0, count: 0, stdDt: '' },
       availableDates: [],
     };
   }
