@@ -2296,7 +2296,9 @@ export type GapDataPoint = {
   mtm: number;        // MTM 합계
   gapEok: number;     // 억 단위 변환
   prevGapEok: number; // 전일 괴리 (억)
-  change: number;     // 일일 변동 (억)
+  change: number;     // 괴리 일일 변동 (억) — 평가 변동분만
+  couponEok: number;  // 당일 쿠폰 유출입 (억)
+  dailyPnl: number;   // 일일 PnL = change + coupon (억)
 };
 
 export type GapTrendPoint = {
@@ -2363,8 +2365,15 @@ export async function fetchGapAnalysis(targetDate?: string): Promise<{
       usdNotionalKrwByType[key] = (usdNotionalKrwByType[key] || 0) + Number(p.notn) * mar;
     }
 
-    // 최신일 struct_type별 괴리
+    // 최신일 struct_type별 괴리 + 쿠폰
     const gapRes = await sql`
+      WITH coupon_today AS (
+        SELECT e.obj_cd, SUM(e.amt) AS coupon_amt
+        FROM excpnp e
+        JOIN strucprdp s2 ON s2.obj_cd = e.obj_cd AND s2.tp != '자체발행'
+        WHERE e.pay_dt > ${prevDt || latestDt} AND e.pay_dt <= ${latestDt}
+        GROUP BY e.obj_cd
+      )
       SELECT
         CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) as struct_type,
         s.curr,
@@ -2372,9 +2381,11 @@ export async function fetchGapAnalysis(targetDate?: string): Promise<{
         COALESCE(SUM(DISTINCT s.notn), 0) as total_notional,
         SUM(CASE WHEN b.tp IN ('자산','MTM') THEN b.avg_prc ELSE 0 END) as gap,
         SUM(CASE WHEN b.tp = '자산' THEN b.avg_prc ELSE 0 END) as asset,
-        SUM(CASE WHEN b.tp = 'MTM' THEN b.avg_prc ELSE 0 END) as mtm
+        SUM(CASE WHEN b.tp = 'MTM' THEN b.avg_prc ELSE 0 END) as mtm,
+        COALESCE(SUM(DISTINCT ct.coupon_amt), 0) as coupon_amt
       FROM breakdownprc b
       JOIN strucprdp s ON b.obj_cd = s.obj_cd AND s.tp != '자체발행'
+      LEFT JOIN coupon_today ct ON ct.obj_cd = b.obj_cd
       WHERE b.std_dt = ${latestDt}
         AND (s.call_yn = 'N' OR s.call_yn IS NULL)
       GROUP BY struct_type, s.curr
@@ -2415,6 +2426,8 @@ export async function fetchGapAnalysis(targetDate?: string): Promise<{
 
       const gapEok = Number(r.gap) / 100000000;
       const prevGapEok = prevGapMap[key] ?? gapEok;
+      const changeEok = gapEok - prevGapEok;
+      const couponEok = Number(r.coupon_amt) / 100000000;
       return {
         structType: r.struct_type,
         curr,
@@ -2425,7 +2438,9 @@ export async function fetchGapAnalysis(targetDate?: string): Promise<{
         mtm: Number(r.mtm),
         gapEok: Math.round(gapEok * 10) / 10,
         prevGapEok: Math.round(prevGapEok * 10) / 10,
-        change: Math.round((gapEok - prevGapEok) * 10) / 10,
+        change: Math.round(changeEok * 10) / 10,
+        couponEok: Math.round(couponEok * 10) / 10,
+        dailyPnl: Math.round((changeEok + couponEok) * 10) / 10,
       };
     });
 

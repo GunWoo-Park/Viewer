@@ -70,9 +70,9 @@ export function GapBubbleChart({
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
 
-  // X축: 전일 대비 변동, Y축: 현재 괴리
+  // X축: 일일 PnL(평가변동+쿠폰), Y축: 현재 괴리
   const gaps = filtered.map((d) => d.gapEok);
-  const changes = filtered.map((d) => d.change);
+  const pnls = filtered.map((d) => d.dailyPnl);
   const absGaps = gaps.map(Math.abs);
   const maxAbsGap = Math.max(...absGaps);
 
@@ -89,8 +89,8 @@ export function GapBubbleChart({
   const yMax = yBound;
   const yRange = yMax - yMin || 1;
 
-  // X축 범위: 변동 값 (대칭)
-  const maxAbsChange = Math.max(...changes.map(Math.abs), 1);
+  // X축 범위: PnL 값 (대칭)
+  const maxAbsChange = Math.max(...pnls.map(Math.abs), 1);
   const xBound = Math.ceil(maxAbsChange * 1.3);
   const xMin = -xBound;
   const xMax = xBound;
@@ -153,16 +153,16 @@ export function GapBubbleChart({
 
             {/* 4분면 라벨 */}
             <text x={padL + 8} y={padT + 16} style={{ fontSize: 9 }} fill="#86efac" opacity={0.6}>
-              양 괴리 · 축소중
+              양 괴리 · PnL 손실
             </text>
             <text x={W - padR - 8} y={padT + 16} textAnchor="end" style={{ fontSize: 9 }} fill="#86efac" opacity={0.6}>
-              양 괴리 · 확대중
+              양 괴리 · PnL 이익
             </text>
             <text x={padL + 8} y={padT + chartH - 6} style={{ fontSize: 9 }} fill="#fda4af" opacity={0.6}>
-              음 괴리 · 확대중
+              음 괴리 · PnL 손실
             </text>
             <text x={W - padR - 8} y={padT + chartH - 6} textAnchor="end" style={{ fontSize: 9 }} fill="#fda4af" opacity={0.6}>
-              음 괴리 · 축소중
+              음 괴리 · PnL 이익
             </text>
 
             {/* Y축 그리드 */}
@@ -208,12 +208,12 @@ export function GapBubbleChart({
             </text>
             <text x={W - padR} y={H - 8} textAnchor="end"
               style={{ fontSize: 9 }} className="fill-gray-400">
-              일일변동 (억) →
+              일일 PnL (억) →
             </text>
 
             {/* 버블 */}
             {filtered.map((d, i) => {
-              const cx = toX(d.change);
+              const cx = toX(d.dailyPnl);
               const cy = toY(d.gapEok);
               const r = toR(d.notionalEok);
               const color = getColor(d.structType);
@@ -289,16 +289,17 @@ export function GapBubbleChart({
             {/* 호버 툴팁 */}
             {hoveredIdx !== null && (() => {
               const d = filtered[hoveredIdx];
-              const cx = toX(d.change);
+              const cx = toX(d.dailyPnl);
               const cy = toY(d.gapEok);
-              const tooltipW = 200;
+              const tooltipW = 210;
+              const tooltipH = 120;
               const tooltipOnLeft = cx > padL + chartW / 2;
               const tx = tooltipOnLeft ? cx - tooltipW - 15 : cx + 15;
-              const ty = Math.max(padT, Math.min(cy - 50, padT + chartH - 110));
+              const ty = Math.max(padT, Math.min(cy - 50, padT + chartH - tooltipH - 10));
 
               return (
                 <g>
-                  <rect x={tx} y={ty} width={tooltipW} height={100} rx={6}
+                  <rect x={tx} y={ty} width={tooltipW} height={tooltipH} rx={6}
                     fill="#1f2937" fillOpacity={0.95} stroke="#374151" strokeWidth={1} />
                   <text x={tx + tooltipW / 2} y={ty + 16} textAnchor="middle"
                     style={{ fontSize: 11, fontWeight: 700 }} fill="#e5e7eb">
@@ -313,17 +314,23 @@ export function GapBubbleChart({
                     fill={d.gapEok >= 0 ? '#34d399' : '#fb7185'}>
                     {fmtEok(d.gapEok)}
                   </text>
-                  <text x={tx + 10} y={ty + 70} style={{ fontSize: 10 }} fill="#d1d5db">변동</text>
+                  <text x={tx + 10} y={ty + 70} style={{ fontSize: 10 }} fill="#d1d5db">평가변동</text>
                   <text x={tx + tooltipW - 10} y={ty + 70} textAnchor="end"
-                    style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}
+                    style={{ fontSize: 11, fontWeight: 600, fontFamily: 'monospace' }}
                     fill={d.change >= 0 ? '#34d399' : '#fb7185'}>
                     {d.change > 0 ? '+' : ''}{d.change.toFixed(1)}억
                   </text>
-                  <text x={tx + 10} y={ty + 88} style={{ fontSize: 10 }} fill="#d1d5db">방향</text>
-                  <text x={tx + tooltipW - 10} y={ty + 88} textAnchor="end"
-                    style={{ fontSize: 11, fontWeight: 600 }}
-                    fill={d.gapEok >= 0 ? '#6ee7b7' : '#fda4af'}>
-                    {d.gapEok >= 0 ? '▲ 양(+) 괴리' : '▼ 음(-) 괴리'}
+                  <text x={tx + 10} y={ty + 86} style={{ fontSize: 10 }} fill="#d1d5db">쿠폰</text>
+                  <text x={tx + tooltipW - 10} y={ty + 86} textAnchor="end"
+                    style={{ fontSize: 11, fontWeight: 600, fontFamily: 'monospace' }}
+                    fill={d.couponEok >= 0 ? '#34d399' : '#fb7185'}>
+                    {d.couponEok > 0 ? '+' : ''}{d.couponEok.toFixed(1)}억
+                  </text>
+                  <text x={tx + 10} y={ty + 104} style={{ fontSize: 10, fontWeight: 700 }} fill="#fbbf24">일일 PnL</text>
+                  <text x={tx + tooltipW - 10} y={ty + 104} textAnchor="end"
+                    style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}
+                    fill={d.dailyPnl >= 0 ? '#34d399' : '#fb7185'}>
+                    {d.dailyPnl > 0 ? '+' : ''}{d.dailyPnl.toFixed(1)}억
                   </text>
                 </g>
               );

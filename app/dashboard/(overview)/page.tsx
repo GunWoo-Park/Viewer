@@ -325,8 +325,7 @@ export default async function Page({
                   MTM 헤지 불일치 현황
                 </h2>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                  유형별 자산-MTM 스왑 간 헤지 잔여 괴리 · 버블 클릭 시 추이
-                  확인
+                  유형별 자산-MTM 스왑 간 헤지 잔여 괴리 · X축: 일일 PnL(평가+쿠폰) · 버블 클릭 시 추이 확인
                 </p>
               </div>
               {gapAnalysis.stdDt && (
