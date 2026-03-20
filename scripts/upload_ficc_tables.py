@@ -625,7 +625,7 @@ def upload_swap_prc(conn, filepath):
 
 
 def upload_strucfe_accint(conn, filepath):
-    """strucfe_accint: 배치 UPSERT (obj_cd + leg_tp + std_dt 기준)
+    """strucfe_accint: INSERT (기존 데이터 보존, 중복 키는 스킵)
     파일명 패턴: struc_accint_*.txt (테이블명은 strucfe_accint)
     파일 컬럼이 DB보다 많으므로 필요한 컬럼만 매핑
     """
@@ -669,28 +669,31 @@ def upload_strucfe_accint(conn, filepath):
             rate or 0, cpn or 0, accint or 0,
         ))
 
+    inserted = 0
+    skipped = 0
     if all_rows:
         for i in range(0, len(all_rows), BATCH_SIZE):
             batch = all_rows[i:i + BATCH_SIZE]
-            execute_values(cur,
-                """INSERT INTO strucfe_accint (
-                    obj_cd, nx_cd, eval_mdul_cd, leg_tp, std_dt, eval_dt,
-                    cf_num, reg_dtm, regr_id, mdfy_dtm, mdfyr_id,
-                    str_dt, end_dt, pay_dt, rate, cpn, accint
-                ) VALUES %s
-                ON CONFLICT (obj_cd, leg_tp, std_dt) DO UPDATE SET
-                    nx_cd=EXCLUDED.nx_cd, eval_mdul_cd=EXCLUDED.eval_mdul_cd,
-                    eval_dt=EXCLUDED.eval_dt, cf_num=EXCLUDED.cf_num,
-                    reg_dtm=EXCLUDED.reg_dtm, regr_id=EXCLUDED.regr_id,
-                    mdfy_dtm=EXCLUDED.mdfy_dtm, mdfyr_id=EXCLUDED.mdfyr_id,
-                    str_dt=EXCLUDED.str_dt, end_dt=EXCLUDED.end_dt, pay_dt=EXCLUDED.pay_dt,
-                    rate=EXCLUDED.rate, cpn=EXCLUDED.cpn, accint=EXCLUDED.accint""",
-                batch, page_size=BATCH_SIZE)
+            cur.execute("SAVEPOINT batch_sp")
+            try:
+                execute_values(cur,
+                    """INSERT INTO strucfe_accint (
+                        obj_cd, nx_cd, eval_mdul_cd, leg_tp, std_dt, eval_dt,
+                        cf_num, reg_dtm, regr_id, mdfy_dtm, mdfyr_id,
+                        str_dt, end_dt, pay_dt, rate, cpn, accint
+                    ) VALUES %s
+                    ON CONFLICT (obj_cd, leg_tp, std_dt) DO NOTHING""",
+                    batch, page_size=BATCH_SIZE)
+                inserted += cur.rowcount
+                skipped += len(batch) - cur.rowcount
+            except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT batch_sp")
+                raise
         conn.commit()
 
     cur.close()
-    print(f"  UPSERT: {len(all_rows)}건")
-    return len(all_rows)
+    print(f"  신규 INSERT: {inserted}건, 스킵(기존): {skipped}건")
+    return inserted
 
 
 def find_struc_accint_file(target_ts=None):
