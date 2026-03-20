@@ -696,6 +696,71 @@ def upload_strucfe_accint(conn, filepath):
     return inserted
 
 
+def upload_nxdeltap(conn, filepath):
+    """nxdeltap: INSERT (기존 데이터 보존, 중복 키는 스킵)
+    파일명 패턴: NXDELTAP__*.txt
+    컬럼: SP_NUM, STD_DT, INTL_YTM_CURV_CD, TNR_CD, Delta, CREATED_AT, UPDATED_AT
+    """
+    print(f"\n[nxdeltap] {os.path.basename(filepath)}")
+    headers, rows = read_tsv(filepath)
+    cur = conn.cursor()
+
+    hmap = {h: i for i, h in enumerate(headers)}
+
+    all_rows = []
+    for row in rows:
+        sp_num = clean(row[hmap.get('SP_NUM', 0)])
+        std_dt = clean(row[hmap.get('STD_DT', 1)])
+        curv_cd = clean(row[hmap.get('INTL_YTM_CURV_CD', 2)])
+        tnr_cd = clean(row[hmap.get('TNR_CD', 3)])
+        delta = num(row[hmap.get('DELTA', 4)])
+        created_at = clean(row[hmap.get('CREATED_AT', 5)])
+        updated_at = clean(row[hmap.get('UPDATED_AT', 6)])
+
+        if not sp_num or not std_dt:
+            continue
+
+        all_rows.append((
+            sp_num, std_dt, curv_cd, tnr_cd,
+            delta, created_at, updated_at,
+        ))
+
+    inserted = 0
+    skipped = 0
+    if all_rows:
+        for i in range(0, len(all_rows), BATCH_SIZE):
+            batch = all_rows[i:i + BATCH_SIZE]
+            execute_values(cur,
+                """INSERT INTO nxdeltap (
+                    sp_num, std_dt, intl_ytm_curv_cd, tnr_cd,
+                    delta, created_at, updated_at
+                ) VALUES %s
+                ON CONFLICT (sp_num, std_dt, intl_ytm_curv_cd, tnr_cd) DO NOTHING""",
+                batch, page_size=BATCH_SIZE)
+            inserted += cur.rowcount
+            skipped += len(batch) - cur.rowcount
+        conn.commit()
+
+    cur.close()
+    print(f"  신규 INSERT: {inserted}건, 스킵(기존): {skipped}건")
+    return inserted
+
+
+def find_nxdeltap_file(target_ts=None):
+    """NXDELTAP 파일 찾기 (파일명: NXDELTAP__*.txt)"""
+    all_txt = glob.glob(os.path.join(DB_DIR, 'NXDELTAP*'))
+    if not all_txt:
+        return None
+    if target_ts:
+        for f in all_txt:
+            base = os.path.basename(f)
+            rest = base.replace('NXDELTAP', '')
+            digits = rest.replace('_', '').replace('.txt', '')
+            if digits == target_ts or digits.startswith(target_ts):
+                return f
+    return max(all_txt, key=os.path.getmtime)
+
+
 def find_struc_accint_file(target_ts=None):
     """struc_accint 파일 찾기 (파일명: struc_accint_*.txt, DB 테이블: strucfe_accint)"""
     all_txt = glob.glob(os.path.join(DB_DIR, 'struc_accint*.txt'))
@@ -770,6 +835,14 @@ def main():
     else:
         print(f"  strucfe_accint: 파일 없음!")
 
+    # nxdeltap (NXDELTAP__*.txt 패턴)
+    nxdeltap_file = find_nxdeltap_file(target_ts)
+    if nxdeltap_file:
+        files_found['nxdeltap'] = nxdeltap_file
+        print(f"  nxdeltap: {os.path.basename(nxdeltap_file)}")
+    else:
+        print(f"  nxdeltap: 파일 없음!")
+
     if not files_found:
         print("\n업로드할 파일이 없습니다.")
         return
@@ -783,6 +856,9 @@ def main():
                 continue
             if table_name == 'strucfe_accint':
                 total += upload_strucfe_accint(conn, filepath)
+                continue
+            if table_name == 'nxdeltap':
+                total += upload_nxdeltap(conn, filepath)
                 continue
             fn = tables[table_name]
             total += fn(conn, filepath)

@@ -1035,6 +1035,214 @@ export async function fetchGappingBtbDelta(): Promise<GappingDeltaSummary> {
   }
 }
 
+// --- 부채 MTM 델타 (NXDELTAP 기반: 자체발행 + MTM헤지) ---
+export type MtmHedgeDeltaRow = {
+  curveCd: string;    // KRW, KTB, USD
+  tnrCd: string;      // 1YR, 5YR, Total 등
+  delta: number;       // 원 단위
+};
+
+export type MtmHedgeDeltaSummary = {
+  mtmRows: MtmHedgeDeltaRow[];   // MTM헤지 델타
+  selfRows: MtmHedgeDeltaRow[];  // 자체발행 델타
+  stdDt: string;
+  curves: string[];
+  // 시나리오 분석용 커브별 Total 델타 (1bp당 변동, 원 단위)
+  mtmTotalByCurve: Record<string, number>;
+  selfTotalByCurve: Record<string, number>;
+};
+
+export async function fetchMtmHedgeDelta(targetDate?: string): Promise<MtmHedgeDeltaSummary> {
+  noStore();
+  const empty: MtmHedgeDeltaSummary = {
+    mtmRows: [], selfRows: [], stdDt: '', curves: [],
+    mtmTotalByCurve: {}, selfTotalByCurve: {},
+  };
+  try {
+    const dtResult = await sql`
+      SELECT DISTINCT std_dt FROM nxdeltap ORDER BY std_dt DESC LIMIT 1
+    `;
+    const stdDt = targetDate || (dtResult.rows.length > 0 ? String(dtResult.rows[0].std_dt) : '');
+    if (!stdDt) return empty;
+
+    // breakdownprc에 매핑되는 sp_num (자산/MTM/캐리) 식별
+    // → NXDELTAP에서 이에 해당하지 않는 sp_num = 자체발행
+    const [mtmData, selfData] = await Promise.all([
+      // MTM 헤지 델타
+      sql`
+        WITH mtm_sp AS (
+          SELECT DISTINCT b.sp_num
+          FROM breakdownprc b
+          JOIN strucprdp p ON p.obj_cd = b.obj_cd
+          WHERE p.tp = 'MTM' AND p.fnd_cd = '10206020'
+            AND (p.call_yn = 'N' OR p.call_yn IS NULL)
+        )
+        SELECT n.intl_ytm_curv_cd, n.tnr_cd, SUM(n.delta) AS total_delta
+        FROM nxdeltap n JOIN mtm_sp m ON m.sp_num = n.sp_num
+        WHERE n.std_dt = ${stdDt}
+        GROUP BY n.intl_ytm_curv_cd, n.tnr_cd
+        ORDER BY n.intl_ytm_curv_cd,
+          CASE WHEN n.tnr_cd = 'Total' THEN 9999
+               ELSE COALESCE(CAST(NULLIF(REGEXP_REPLACE(n.tnr_cd, '[^0-9]', '', 'g'), '') AS INTEGER), 0)
+          END
+      `,
+      // 자체발행 델타 (breakdownprc에 없는 sp_num)
+      sql`
+        WITH known_sp AS (
+          SELECT DISTINCT b.sp_num
+          FROM breakdownprc b
+          JOIN strucprdp p ON p.obj_cd = b.obj_cd
+          WHERE p.fnd_cd = '10206020' AND b.sp_num IS NOT NULL
+            AND (p.call_yn = 'N' OR p.call_yn IS NULL)
+        )
+        SELECT n.intl_ytm_curv_cd, n.tnr_cd, SUM(n.delta) AS total_delta
+        FROM nxdeltap n
+        WHERE n.std_dt = ${stdDt}
+          AND n.sp_num NOT IN (SELECT sp_num FROM known_sp)
+        GROUP BY n.intl_ytm_curv_cd, n.tnr_cd
+        ORDER BY n.intl_ytm_curv_cd,
+          CASE WHEN n.tnr_cd = 'Total' THEN 9999
+               ELSE COALESCE(CAST(NULLIF(REGEXP_REPLACE(n.tnr_cd, '[^0-9]', '', 'g'), '') AS INTEGER), 0)
+          END
+      `,
+    ]);
+
+    const toRows = (data: any) => data.rows.map((r: any) => ({
+      curveCd: String(r.intl_ytm_curv_cd),
+      tnrCd: String(r.tnr_cd),
+      delta: Number(r.total_delta) || 0,
+    }));
+
+    const mtmRows: MtmHedgeDeltaRow[] = toRows(mtmData);
+    const selfRows: MtmHedgeDeltaRow[] = toRows(selfData);
+
+    // DB에 Total 행이 없는 커브에 대해 개별 테너 합산으로 Total 자동 생성
+    const ensureTotals = (rows: MtmHedgeDeltaRow[]) => {
+      const curvesInRows = [...new Set(rows.map((r) => r.curveCd))];
+      const hasTotalFor = new Set(rows.filter((r) => r.tnrCd === 'Total').map((r) => r.curveCd));
+      for (const c of curvesInRows) {
+        if (!hasTotalFor.has(c)) {
+          const sum = rows.filter((r) => r.curveCd === c && r.tnrCd !== 'Total')
+            .reduce((s, r) => s + r.delta, 0);
+          rows.push({ curveCd: c, tnrCd: 'Total', delta: sum });
+        }
+      }
+      return rows;
+    };
+    ensureTotals(mtmRows);
+    ensureTotals(selfRows);
+
+    const allRows = [...mtmRows, ...selfRows];
+    const curves = [...new Set(allRows.map((r) => r.curveCd))];
+
+    // 커브별 Total 추출 (시나리오 분석용)
+    const extractTotals = (rows: MtmHedgeDeltaRow[]) => {
+      const totals: Record<string, number> = {};
+      for (const r of rows) {
+        if (r.tnrCd === 'Total') totals[r.curveCd] = r.delta;
+      }
+      return totals;
+    };
+
+    return {
+      mtmRows, selfRows, stdDt, curves,
+      mtmTotalByCurve: extractTotals(mtmRows),
+      selfTotalByCurve: extractTotals(selfRows),
+    };
+  } catch (error) {
+    console.error('fetchMtmHedgeDelta Error:', error);
+    return empty;
+  }
+}
+
+// 부채MTM 한도 제외 후보 종목 (Total delta 절대값 ≤ threshold)
+export type LowDeltaCandidate = {
+  category: '자체발행' | 'MTM헤지';
+  spNum: string;
+  objCd: string | null;
+  cntrNm: string | null;
+  curr: string | null;
+  notn: number | null;
+  matDt: string | null;
+  totalDelta: number;       // 원 단위
+  avgPrc: number | null;    // 평가액 (원)
+  curves: string;           // 'KRW,KTB' 등
+};
+
+export type LowDeltaCandidates = {
+  items: LowDeltaCandidate[];
+  threshold: number;        // 원 단위 (예: 1000000)
+  stdDt: string;
+};
+
+export async function fetchLowDeltaCandidates(
+  targetDate?: string,
+  thresholdWon = 1_000_000,
+): Promise<LowDeltaCandidates> {
+  noStore();
+  const empty: LowDeltaCandidates = { items: [], threshold: thresholdWon, stdDt: '' };
+  try {
+    const dtResult = await sql`
+      SELECT DISTINCT std_dt FROM nxdeltap ORDER BY std_dt DESC LIMIT 1
+    `;
+    const stdDt = targetDate || (dtResult.rows.length > 0 ? String(dtResult.rows[0].std_dt) : '');
+    if (!stdDt) return empty;
+
+    // 자체발행만 조회: orphan sp_num → strucprdp.no → swap_prc.avg_prc
+    const result = await sql`
+      WITH known_sp AS (
+        SELECT DISTINCT b.sp_num
+        FROM breakdownprc b JOIN strucprdp p ON p.obj_cd = b.obj_cd
+        WHERE p.fnd_cd = '10206020' AND b.sp_num IS NOT NULL
+          AND (p.call_yn = 'N' OR p.call_yn IS NULL)
+      ),
+      self_totals AS (
+        SELECT n.sp_num, SUM(n.delta) AS total_delta,
+          STRING_AGG(DISTINCT n.intl_ytm_curv_cd, ',' ORDER BY n.intl_ytm_curv_cd) AS curves
+        FROM nxdeltap n
+        WHERE n.std_dt = ${stdDt}
+          AND n.sp_num NOT IN (SELECT sp_num FROM known_sp)
+        GROUP BY n.sp_num
+        HAVING ABS(SUM(n.delta)) <= ${thresholdWon}
+      ),
+      self_with_prc AS (
+        SELECT t.sp_num, t.total_delta, t.curves,
+          MIN(p.obj_cd) AS obj_cd, MIN(p.cntr_nm) AS cntr_nm,
+          MIN(p.curr) AS curr, MIN(p.notn) AS notn,
+          MIN(CAST(p.mat_dt AS TEXT)) AS mat_dt,
+          SUM(s.avg_prc) AS avg_prc
+        FROM self_totals t
+        LEFT JOIN strucprdp p
+          ON p.no = CAST(REPLACE(REPLACE(t.sp_num, 'SP', ''), '_New', '') AS INTEGER)
+        LEFT JOIN swap_prc s ON s.obj_cd = p.obj_cd AND s.std_dt = ${stdDt}
+        GROUP BY t.sp_num, t.total_delta, t.curves
+      )
+      SELECT '자체발행' AS category, t.sp_num, t.obj_cd, t.cntr_nm, t.curr,
+             t.notn, t.mat_dt, t.total_delta, t.curves, t.avg_prc
+      FROM self_with_prc t
+      ORDER BY total_delta
+    `;
+
+    const items: LowDeltaCandidate[] = result.rows.map((r: any) => ({
+      category: r.category,
+      spNum: String(r.sp_num),
+      objCd: r.obj_cd ? String(r.obj_cd) : null,
+      cntrNm: r.cntr_nm ? String(r.cntr_nm) : null,
+      curr: r.curr ? String(r.curr) : null,
+      notn: r.notn ? Number(r.notn) : null,
+      matDt: r.mat_dt ? String(r.mat_dt) : null,
+      totalDelta: Number(r.total_delta) || 0,
+      avgPrc: r.avg_prc != null ? Number(r.avg_prc) : null,
+      curves: String(r.curves || ''),
+    }));
+
+    return { items, threshold: thresholdWon, stdDt };
+  } catch (error) {
+    console.error('fetchLowDeltaCandidates Error:', error);
+    return empty;
+  }
+}
+
 /**
  * USD 종목별 발행일(eff_dt) -1 영업일의 USD/KRW MAR 환율 조회
  * eq_unasp 테이블에서 unas_id='USD/KRW_MAR' 기준

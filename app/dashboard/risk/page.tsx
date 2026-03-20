@@ -1,10 +1,11 @@
 // app/dashboard/risk/page.tsx
 import { lusitana } from '@/app/ui/fonts';
-import { fetchGappingBtbDelta, fetchRiskDelta, fetchPnlrtpDetail, fetchRiskSwapValuations } from '@/app/lib/data';
-import type { GappingDeltaSummary, PnlrtpRow } from '@/app/lib/data';
+import { fetchGappingBtbDelta, fetchRiskDelta, fetchPnlrtpDetail, fetchRiskSwapValuations, fetchMtmHedgeDelta, fetchLowDeltaCandidates } from '@/app/lib/data';
+import type { GappingDeltaSummary, PnlrtpRow, MtmHedgeDeltaSummary, LowDeltaCandidates } from '@/app/lib/data';
 import { KrwDeltaChart, UsdDeltaChart, TotalDeltaChart } from '@/app/ui/risk/delta-chart';
 import { DateSelector } from '@/app/ui/dashboard/date-selector';
 import LimitGauge from '@/app/ui/risk/limit-gauge';
+import CurveScenarioChart from '@/app/ui/risk/curve-scenario-chart';
 
 // 금액 포맷 헬퍼
 function formatDelta(value: number, format: 'krw' | 'usd'): string {
@@ -203,6 +204,269 @@ function GappingDeltaCard({ data }: { data: GappingDeltaSummary }) {
   );
 }
 
+// 부채 MTM 델타 테이블 (자체발행 + MTM헤지, NXDELTAP 기반)
+function MtmHedgeDeltaTable({ data }: { data: MtmHedgeDeltaSummary }) {
+  const { mtmRows, selfRows, stdDt, curves } = data;
+  if (mtmRows.length === 0 && selfRows.length === 0) return null;
+
+  const curveOrder = ['KRW', 'KTB', 'USD'];
+  const orderedCurves = curveOrder.filter((c) => curves.includes(c));
+
+  // 두 세트 각각의 룩업
+  const mtmLookup: Record<string, number> = {};
+  for (const r of mtmRows) mtmLookup[`${r.curveCd}::${r.tnrCd}`] = r.delta;
+  const selfLookup: Record<string, number> = {};
+  for (const r of selfRows) selfLookup[`${r.curveCd}::${r.tnrCd}`] = r.delta;
+
+  // 모든 테너 통합 (MTM + 자체발행)
+  const THRESHOLD = 5e7;
+  const allTnrs = new Set<string>();
+  for (const r of [...mtmRows, ...selfRows]) allTnrs.add(r.tnrCd);
+  const tnrSort = (t: string) => {
+    if (t === 'Total') return 99999;
+    const n = parseInt(t.replace(/[^0-9]/g, ''), 10);
+    const unit = t.replace(/[0-9]/g, '').toUpperCase();
+    if (unit.includes('BD')) return n * 0.003;
+    if (unit.includes('MO') || unit.includes('M')) return n / 12;
+    return n;
+  };
+  const tnrList = [...allTnrs]
+    .filter((tnr) => {
+      if (tnr === 'Total') return true;
+      return orderedCurves.some((c) =>
+        Math.abs(mtmLookup[`${c}::${tnr}`] || 0) > THRESHOLD ||
+        Math.abs(selfLookup[`${c}::${tnr}`] || 0) > THRESHOLD
+      );
+    })
+    .sort((a, b) => tnrSort(a) - tnrSort(b));
+
+  const badgeColor: Record<string, string> = {
+    KRW: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+    KTB: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
+    USD: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  };
+
+  const fmtDelta = (v: number | undefined) => {
+    if (v === undefined || v === 0) return '-';
+    const abs = Math.abs(v);
+    const sign = v > 0 ? '+' : '−';
+    if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(1)}억`;
+    if (abs >= 1e4) return `${sign}${(abs / 1e4).toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+    return `${sign}${abs.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}`;
+  };
+  const deltaColor = (v: number | undefined) => {
+    if (!v || v === 0) return 'text-gray-400 dark:text-gray-500';
+    return v > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400';
+  };
+
+  const hasSelf = selfRows.length > 0;
+
+  return (
+    <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 px-2.5 py-0.5 text-xs font-bold">
+            부채MTM
+          </span>
+          <h2 className="font-semibold text-gray-700 dark:text-gray-200">
+            Delta by Curve · Tenor
+          </h2>
+          <span className="text-xs text-gray-400 dark:text-gray-500">
+            NXDELTAP · 자체발행 + MTM헤지
+          </span>
+        </div>
+        {stdDt && (
+          <span className="text-xs font-mono text-gray-400 dark:text-gray-500">
+            {stdDt.slice(0, 4)}-{stdDt.slice(4, 6)}-{stdDt.slice(6, 8)}
+          </span>
+        )}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
+              <th className="pb-1 text-left font-medium w-16" rowSpan={2}>Tenor</th>
+              {orderedCurves.map((c) => (
+                <th key={c} className="pb-1 text-center font-medium px-1 border-l border-gray-200 dark:border-gray-700"
+                  colSpan={hasSelf ? 3 : 1}>
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${badgeColor[c] || ''}`}>
+                    {c}
+                  </span>
+                </th>
+              ))}
+            </tr>
+            {hasSelf && (
+              <tr className="border-b-2 border-gray-300 dark:border-gray-600 text-[10px] text-gray-400">
+                {orderedCurves.flatMap((c) => [
+                  <th key={`${c}-self`} className="pb-1 text-right px-1 border-l border-gray-200 dark:border-gray-700 text-orange-400">자체발행</th>,
+                  <th key={`${c}-mtm`} className="pb-1 text-right px-1 text-cyan-400">MTM헤지</th>,
+                  <th key={`${c}-sum`} className="pb-1 text-right px-1 font-semibold text-gray-300">합계</th>,
+                ])}
+              </tr>
+            )}
+          </thead>
+          <tbody>
+            {tnrList.map((tnr) => {
+              const isTotal = tnr === 'Total';
+              const rowCls = isTotal
+                ? 'border-t-2 border-gray-300 dark:border-gray-600 font-semibold bg-gray-50 dark:bg-gray-800/50'
+                : 'border-b border-gray-100 dark:border-gray-800';
+              return (
+                <tr key={tnr} className={rowCls}>
+                  <td className={`py-1.5 font-mono ${isTotal ? 'font-bold text-gray-800 dark:text-gray-200' : 'text-gray-600 dark:text-gray-400'}`}>
+                    {tnr}
+                  </td>
+                  {orderedCurves.flatMap((c) => {
+                    const mtmVal = mtmLookup[`${c}::${tnr}`] || 0;
+                    const selfVal = selfLookup[`${c}::${tnr}`] || 0;
+                    const sumVal = mtmVal + selfVal;
+                    if (hasSelf) {
+                      return [
+                        <td key={`${c}-self`} className={`py-1.5 text-right font-mono px-1 border-l border-gray-100 dark:border-gray-800 ${isTotal ? 'font-bold' : ''} ${deltaColor(selfVal || undefined)}`}>
+                          {fmtDelta(selfVal || undefined)}
+                        </td>,
+                        <td key={`${c}-mtm`} className={`py-1.5 text-right font-mono px-1 ${isTotal ? 'font-bold' : ''} ${deltaColor(mtmVal || undefined)}`}>
+                          {fmtDelta(mtmVal || undefined)}
+                        </td>,
+                        <td key={`${c}-sum`} className={`py-1.5 text-right font-mono px-1 ${isTotal ? 'font-bold' : ''} ${deltaColor(sumVal || undefined)}`}>
+                          {fmtDelta(sumVal || undefined)}
+                        </td>,
+                      ];
+                    }
+                    return [
+                      <td key={c} className={`py-1.5 text-right font-mono px-2 ${isTotal ? 'font-bold' : ''} ${deltaColor(mtmVal || undefined)}`}>
+                        {fmtDelta(mtmVal || undefined)}
+                      </td>,
+                    ];
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// 한도 제외 후보 테이블 — 자체발행 중 Total delta ≤ threshold
+function LowDeltaCandidateTable({ data }: { data: LowDeltaCandidates }) {
+  if (data.items.length === 0) return null;
+
+  const thresholdMan = data.threshold / 10000;
+
+  const fmtDeltaWon = (v: number) => {
+    const sign = v >= 0 ? '+' : '−';
+    const abs = Math.abs(v);
+    if (abs >= 1e4) return `${sign}${(abs / 1e4).toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+    return `${sign}${abs.toLocaleString('ko-KR')}`;
+  };
+
+  const fmtNotn = (notn: number | null, curr: string | null) => {
+    if (!notn) return '-';
+    if (curr === 'USD') return `$${(notn / 1e6).toFixed(1)}M`;
+    return `${(notn / 1e8).toFixed(0)}억`;
+  };
+
+  const fmtPrc = (prc: number | null) => {
+    if (prc == null) return '-';
+    const sign = prc >= 0 ? '+' : '−';
+    const abs = Math.abs(prc);
+    if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(1)}억`;
+    if (abs >= 1e4) return `${sign}${(abs / 1e4).toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만`;
+    return `${sign}${abs.toLocaleString('ko-KR')}`;
+  };
+
+  const prcColor = (prc: number | null) => {
+    if (prc == null) return 'text-gray-400';
+    return prc >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400';
+  };
+
+  const fmtDate = (d: string | null) => {
+    if (!d || d.length < 8) return '-';
+    const clean = d.replace(/-/g, '');
+    return `${clean.slice(2, 4)}.${clean.slice(4, 6)}.${clean.slice(6, 8)}`;
+  };
+
+  return (
+    <div className="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 px-2.5 py-0.5 text-xs font-bold">
+            한도 제외 후보
+          </span>
+          <h2 className="font-semibold text-gray-700 dark:text-gray-200">
+            자체발행 · Total Delta ≤ {thresholdMan.toLocaleString()}만원
+          </h2>
+          <span className="text-xs text-gray-400 dark:text-gray-500">
+            {data.items.length}건 · 리스크관리부 협의 대상
+          </span>
+        </div>
+        {data.stdDt && (
+          <span className="text-xs font-mono text-gray-400 dark:text-gray-500">
+            {data.stdDt.slice(0, 4)}-{data.stdDt.slice(4, 6)}-{data.stdDt.slice(6, 8)}
+          </span>
+        )}
+      </div>
+
+      <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-white dark:bg-gray-900 z-10">
+            <tr className="border-b-2 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400">
+              <th className="pb-1.5 text-left font-medium">sp_num</th>
+              <th className="pb-1.5 text-left font-medium">종목코드</th>
+              <th className="pb-1.5 text-left font-medium">거래상대</th>
+              <th className="pb-1.5 text-center font-medium">통화</th>
+              <th className="pb-1.5 text-right font-medium">명목</th>
+              <th className="pb-1.5 text-center font-medium">만기</th>
+              <th className="pb-1.5 text-right font-medium">평가액</th>
+              <th className="pb-1.5 text-right font-medium">Total Delta</th>
+              <th className="pb-1.5 text-center font-medium">커브</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.items.map((item) => {
+              const deltaColor = item.totalDelta > 0
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : item.totalDelta < 0
+                  ? 'text-rose-600 dark:text-rose-400'
+                  : 'text-gray-400';
+              return (
+                <tr key={item.spNum} className="border-b border-gray-100 dark:border-gray-800">
+                  <td className="py-1.5 font-mono text-gray-600 dark:text-gray-400">{item.spNum}</td>
+                  <td className="py-1.5 font-mono text-gray-500 dark:text-gray-500">{item.objCd || '-'}</td>
+                  <td className="py-1.5 text-gray-600 dark:text-gray-400 max-w-[160px] truncate">{item.cntrNm || '-'}</td>
+                  <td className="py-1.5 text-center text-gray-500">{item.curr || '-'}</td>
+                  <td className="py-1.5 text-right font-mono text-gray-500">{fmtNotn(item.notn, item.curr)}</td>
+                  <td className="py-1.5 text-center font-mono text-gray-500">{fmtDate(item.matDt)}</td>
+                  <td className={`py-1.5 text-right font-mono ${prcColor(item.avgPrc)}`}>{fmtPrc(item.avgPrc)}</td>
+                  <td className={`py-1.5 text-right font-mono font-medium ${deltaColor}`}>{fmtDeltaWon(item.totalDelta)}</td>
+                  <td className="py-1.5 text-center text-gray-400">{item.curves}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50">
+              <td colSpan={6} className="py-2 font-semibold text-gray-700 dark:text-gray-300">
+                합계 {data.items.length}건
+              </td>
+              <td className="py-2 text-right font-mono font-bold text-gray-600 dark:text-gray-300">
+                {fmtPrc(data.items.reduce((s, i) => s + (i.avgPrc || 0), 0))}
+              </td>
+              <td className="py-2 text-right font-mono font-bold text-gray-600 dark:text-gray-300">
+                {fmtDeltaWon(data.items.reduce((s, i) => s + i.totalDelta, 0))}
+              </td>
+              <td />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // 숫자 포맷 (소수점 단위별)
 function fmtNum(v: number, decimals = 0): string {
   if (v === 0) return '-';
@@ -309,11 +573,13 @@ export default async function RiskPage({
 }) {
   const selectedDate = searchParams?.date || '';
 
-  const [gappingDelta, riskDelta, pnlrtpDetail, swapValuations] = await Promise.all([
+  const [gappingDelta, riskDelta, pnlrtpDetail, swapValuations, mtmHedgeDelta, lowDeltaCandidates] = await Promise.all([
     fetchGappingBtbDelta(),
     fetchRiskDelta(),
     fetchPnlrtpDetail(),
     fetchRiskSwapValuations(selectedDate || undefined),
+    fetchMtmHedgeDelta(selectedDate || undefined),
+    fetchLowDeltaCandidates(selectedDate || undefined, 1_000_000),
   ]);
 
   // pnlrtp 커브별 그룹핑 (KRW → KTB → USD → UST 순)
@@ -362,6 +628,34 @@ export default async function RiskPage({
           exportDate={currentSwapDate}
         />
       </div>
+
+      {/* 커브 시나리오 시뮬레이션 */}
+      {(mtmHedgeDelta.mtmRows.length > 0 || mtmHedgeDelta.selfRows.length > 0) && (
+        <div className="mb-6">
+          <CurveScenarioChart
+            currentMtmEok={(swapValuations.selfIssued.totalPrc + swapValuations.mtmHedge.totalPrc) / 1e8}
+            selfIssuedEok={swapValuations.selfIssued.totalPrc / 1e8}
+            mtmHedgeEok={swapValuations.mtmHedge.totalPrc / 1e8}
+            limitEok={300}
+            selfDelta={mtmHedgeDelta.selfTotalByCurve}
+            mtmDelta={mtmHedgeDelta.mtmTotalByCurve}
+          />
+        </div>
+      )}
+
+      {/* MTM 헤지 델타 (NXDELTAP 기반) */}
+      {(mtmHedgeDelta.mtmRows.length > 0 || mtmHedgeDelta.selfRows.length > 0) && (
+        <div className="mb-6">
+          <MtmHedgeDeltaTable data={mtmHedgeDelta} />
+        </div>
+      )}
+
+      {/* 한도 제외 후보 (delta ≤ 100만원) */}
+      {lowDeltaCandidates.items.length > 0 && (
+        <div className="mb-6">
+          <LowDeltaCandidateTable data={lowDeltaCandidates} />
+        </div>
+      )}
 
       {/* NET DELTA(좌) | Gapping BTB Delta(우) */}
       <div className="mb-6 grid gap-4 grid-cols-1 lg:grid-cols-2">
