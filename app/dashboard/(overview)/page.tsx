@@ -10,6 +10,7 @@ import {
   fetchPnlSummaryByTypeAllFunds,
   fetchRiskDelta,
   fetchGapAnalysis,
+  fetchCallPnl,
 } from '@/app/lib/data';
 import {
   WeeklyTypePnlChart,
@@ -44,12 +45,13 @@ export default async function Page({
 }) {
   const selectedDate = searchParams?.date || '';
 
-  const [summary, carry, pnlTrend, riskDelta, gapAnalysis] = await Promise.all([
+  const [summary, carry, pnlTrend, riskDelta, gapAnalysis, callPnl] = await Promise.all([
     fetchStrucprdpSummary(),
     fetchWeightedAvgCarry(),
     fetchPnlTrend(),
     fetchRiskDelta(),
     fetchGapAnalysis(selectedDate || undefined),
+    fetchCallPnl(),
   ]);
 
   // 사용 가능한 날짜 목록 (최신순, YYYYMMDD)
@@ -197,6 +199,12 @@ export default async function Page({
               value={Math.round(ytdHedgeMismatch * 100) / 100}
               unit="억"
               gapCard
+            />
+            <PnlCard
+              label={`Call PnL (${callPnl.items.length}건)`}
+              value={callPnl.ytdCallPnl}
+              unit="억"
+              callCard
             />
           </div>
 
@@ -423,12 +431,14 @@ function PnlCard({
   unit,
   highlight = false,
   gapCard = false,
+  callCard = false,
 }: {
   label: string;
   value: number;
   unit: string;
   highlight?: boolean;
   gapCard?: boolean;
+  callCard?: boolean;
 }) {
   const color = gapCard
     ? (value > 0
@@ -436,18 +446,30 @@ function PnlCard({
       : value < 0
         ? 'text-sky-600 dark:text-sky-400'
         : 'text-gray-500')
-    : pnlColor(value * 100000000);
+    : callCard
+      ? (value > 0
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : value < 0
+          ? 'text-rose-600 dark:text-rose-400'
+          : 'text-gray-500')
+      : pnlColor(value * 100000000);
   const sign = value > 0 ? '+' : value < 0 ? '' : '';
   return (
     <div className={`rounded-xl border p-3 shadow-sm ${
       gapCard
-        ? 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 col-span-2'
-        : highlight
-          ? 'border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30'
-          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
+        ? 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20'
+        : callCard
+          ? 'border-rose-200 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20'
+          : highlight
+            ? 'border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30'
+            : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
     }`}>
       <p className={`text-[10px] mb-0.5 ${
-        gapCard ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-gray-500 dark:text-gray-400'
+        gapCard
+          ? 'text-amber-600 dark:text-amber-400 font-semibold'
+          : callCard
+            ? 'text-rose-600 dark:text-rose-400 font-semibold'
+            : 'text-gray-500 dark:text-gray-400'
       }`}>{label}</p>
       <p className={`${lusitana.className} text-lg font-bold ${color}`}>
         {sign}{value.toFixed(2)}{unit}

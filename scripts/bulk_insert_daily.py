@@ -43,9 +43,13 @@ def extract_base_date(ws):
 
 
 def parse_date_from_filename(filepath):
-    """파일명에서 날짜 추출: 260304 → 2026-03-04"""
+    """파일명에서 날짜 추출: '260304_DAILY' 또는 '260323 데일리' → 2026-03-04"""
     basename = os.path.basename(filepath)
+    # 패턴1: YYMMDD_DAILY (기존)
     m = re.search(r'(\d{6})_DAILY', basename)
+    if not m:
+        # 패턴2: YYMMDD 데일리 (신규 — 공백/언더스코어 + 한글)
+        m = re.search(r'(\d{6})[\s_]*데일리', basename)
     if m:
         d = m.group(1)
         year = 2000 + int(d[:2])
@@ -425,10 +429,11 @@ def process_single_file(filepath, conn):
     wb = openpyxl.load_workbook(filepath, data_only=True)
     ws = wb['Sub']
 
-    # 기준일 결정: 파일명 우선 (시트 내부 날짜는 전일 기준)
-    base_date = parse_date_from_filename(filepath)
+    # 기준일 결정: 시트 내부 날짜 우선 (실제 종가 기준일)
+    # 파일명은 배포일(당일), 시트 내부 날짜가 실제 데이터 기준일(전 영업일)
+    base_date = extract_base_date(ws)
     if not base_date:
-        base_date = extract_base_date(ws)
+        base_date = parse_date_from_filename(filepath)
     if not base_date:
         print("  기준일을 추출할 수 없습니다. 건너뜀.")
         wb.close()
@@ -448,6 +453,9 @@ def process_single_file(filepath, conn):
         total += insert_bond_lending(ws, cur, base_date)
         total += insert_economic_calendar(ws, cur, base_date)
 
+        # market_rates 동기화 (overview 페이지 금리 차트용)
+        sync_market_rates(cur, base_date)
+
         conn.commit()
         print(f"  → {total}건 삽입 완료!")
         return total
@@ -460,6 +468,39 @@ def process_single_file(filepath, conn):
         wb.close()
 
 
+def sync_market_rates(cur, base_date):
+    """tb_domestic_rate → market_rates 동기화 (overview 금리 차트용)
+    국고채 10년 → ktb_10y, UST 10Y → ust_10y"""
+    base_date_iso = base_date.isoformat() if isinstance(base_date, date) else str(base_date)
+    std_dt = base_date_iso.replace('-', '')  # YYYYMMDD 형식
+
+    # 국고채 10년
+    cur.execute(
+        "SELECT yield_val FROM tb_domestic_rate WHERE base_date = %s AND rate_type = '국고채' AND maturity = '국고채 10년'",
+        (base_date_iso,)
+    )
+    ktb_row = cur.fetchone()
+    ktb_10y = float(ktb_row[0]) if ktb_row else None
+
+    # UST 10Y
+    cur.execute(
+        "SELECT yield_val FROM tb_domestic_rate WHERE base_date = %s AND rate_type = 'UST' AND maturity = '10Y'",
+        (base_date_iso,)
+    )
+    ust_row = cur.fetchone()
+    ust_10y = float(ust_row[0]) if ust_row else None
+
+    if ktb_10y is not None and ust_10y is not None:
+        cur.execute("""
+            INSERT INTO market_rates (std_dt, ktb_10y, ust_10y)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (std_dt) DO UPDATE SET ktb_10y = EXCLUDED.ktb_10y, ust_10y = EXCLUDED.ust_10y
+        """, (std_dt, ktb_10y, ust_10y))
+        print(f"  market_rates 동기화: {std_dt} (KTB10Y={ktb_10y}, UST10Y={ust_10y})")
+    else:
+        print(f"  market_rates 동기화 건너뜀: 국고10Y={ktb_10y}, UST10Y={ust_10y}")
+
+
 def get_existing_dates(conn):
     """DB에 이미 존재하는 base_date 집합 반환"""
     cur = conn.cursor()
@@ -469,13 +510,30 @@ def get_existing_dates(conn):
     return dates
 
 
+def extract_base_date_from_file(filepath):
+    """Excel 파일의 시트 내부 기준일 추출 (파일을 열어야 함)"""
+    try:
+        wb = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
+        ws = wb['Sub']
+        for r in range(3, 6):
+            for c in range(25, 40):
+                v = ws.cell(r, c).value
+                if isinstance(v, datetime):
+                    wb.close()
+                    return v.date()
+        wb.close()
+    except Exception:
+        pass
+    return None
+
+
 def find_daily_files(market_dir='market'):
     """market 폴더에서 *_DAILY.xlsx 파일 목록과 날짜를 반환"""
     files = []
     if not os.path.isdir(market_dir):
         return files
     for fname in sorted(os.listdir(market_dir)):
-        if fname.endswith('.xlsx') and '_DAILY' in fname and not fname.startswith('~'):
+        if fname.endswith('.xlsx') and ('_DAILY' in fname or '데일리' in fname) and not fname.startswith('~'):
             filepath = os.path.join(market_dir, fname)
             file_date = parse_date_from_filename(filepath)
             if file_date:
@@ -496,8 +554,14 @@ def auto_mode(market_dir='market'):
     all_files = find_daily_files(market_dir)
     print(f"market 폴더 내 DAILY 파일: {len(all_files)}개")
 
-    # DB에 없는 날짜만 필터
-    new_files = [(d, f) for d, f in all_files if d not in existing]
+    # DB에 없는 날짜만 필터 (시트 기준일 기준으로 비교)
+    new_files = []
+    for d, f in all_files:
+        # 시트 내부 기준일 추출하여 비교
+        sheet_date = extract_base_date_from_file(f)
+        check_date = sheet_date if sheet_date else d
+        if check_date not in existing:
+            new_files.append((d, f))
     if not new_files:
         print("\n새로 삽입할 파일이 없습니다. DB가 최신 상태입니다.")
         conn.close()

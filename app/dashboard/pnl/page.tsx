@@ -15,13 +15,15 @@ import {
   fetchPnlSummaryByTypeAllFunds,
   fetchAvailableDates,
   fetchPriceDiff,
+  fetchCallPnl,
 } from '@/app/lib/data';
-import type { PriceDiffRow } from '@/app/lib/data';
+import type { PriceDiffRow, CallPnlItem } from '@/app/lib/data';
 import DatePicker from '@/app/ui/strucprdm/date-picker';
 import {
   ArrowTrendingUpIcon,
   CalendarDaysIcon,
   ChartBarIcon,
+  PhoneArrowDownLeftIcon,
 } from '@heroicons/react/24/outline';
 
 // 요약 카드 컴포넌트
@@ -73,11 +75,13 @@ async function PnlDashboardContent({ pnlDate }: { pnlDate?: string }) {
     typeSummary,
     availableDates,
     priceDiff,
+    callPnl,
   ] = await Promise.all([
     fetchPnlTrend(),
     fetchPnlSummaryByTypeAllFunds(pnlDate),
     fetchAvailableDates(),
     fetchPriceDiff(pnlDate),
+    fetchCallPnl(),
   ]);
 
   // 선택된 날짜의 MM/DD 변환 (trend.date 포맷과 맞춤)
@@ -160,7 +164,7 @@ async function PnlDashboardContent({ pnlDate }: { pnlDate?: string }) {
       )}
 
       {/* PnL 요약 카드 */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <PnlSummaryCard
           title="Daily PnL"
           value={summaryCards.dailyPnl}
@@ -188,6 +192,13 @@ async function PnlDashboardContent({ pnlDate }: { pnlDate?: string }) {
           subtitle="Carry swap 일별 손익"
           icon={ChartBarIcon}
           color="bg-amber-500"
+        />
+        <PnlSummaryCard
+          title="Call PnL (YTD)"
+          value={callPnl.ytdCallPnl}
+          subtitle={`콜 이벤트 ${callPnl.items.length}건`}
+          icon={PhoneArrowDownLeftIcon}
+          color="bg-rose-500"
         />
       </div>
 
@@ -235,6 +246,44 @@ async function PnlDashboardContent({ pnlDate }: { pnlDate?: string }) {
         <CarryWtdPnlChart data={slicedCarryTrend} allCarryStructTypes={allCarryStructTypes} />
       </div>
 
+      {/* Call PnL 분석 섹션 */}
+      {callPnl.items.length > 0 && (
+        <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+          <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-200">
+            Call PnL 분석
+            <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+              (YTD PnL − Carry PnL 갭 vs 콜 손익)
+            </span>
+          </h2>
+          <CallPnlGapAnalysis
+            trend={slicedTrend}
+            carryTrend={slicedCarryTrend}
+            callPnlByDate={callPnl.callPnlByDate}
+            ytdCallPnl={callPnl.ytdCallPnl}
+            ytdPnl={summaryCards.ytdPnl}
+            ytdCarryPnl={summaryCards.ytdCarryPnl}
+          />
+        </div>
+      )}
+
+      {/* Call 이벤트 상세 테이블 */}
+      {callPnl.items.length > 0 && (
+        <div className="mb-6 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900 p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-semibold text-gray-700 dark:text-gray-200">
+              Call 이벤트 상세
+              <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+                (MTM 평가 → 0 이벤트별 손익 분해)
+              </span>
+            </h2>
+            <span className="rounded-full bg-rose-100 dark:bg-rose-900/40 px-2.5 py-0.5 text-xs font-medium text-rose-700 dark:text-rose-300">
+              {callPnl.items.length}건 · YTD {callPnl.ytdCallPnl >= 0 ? '+' : ''}{callPnl.ytdCallPnl.toFixed(2)}억
+            </span>
+          </div>
+          <CallPnlTable items={callPnl.items} />
+        </div>
+      )}
+
       {/* 테이블 2개 가로 배치 */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* 리스크 요인별 Attribution */}
@@ -278,6 +327,194 @@ async function PnlDashboardContent({ pnlDate }: { pnlDate?: string }) {
         <PriceDiffTable rows={priceDiff.rows} totalDiff={priceDiff.totalDiff} />
       </div>
     </>
+  );
+}
+
+// Call PnL 갭 분석 컴포넌트
+function CallPnlGapAnalysis({
+  trend,
+  carryTrend,
+  callPnlByDate,
+  ytdCallPnl,
+  ytdPnl,
+  ytdCarryPnl,
+}: {
+  trend: { date: string; cumulative: number }[];
+  carryTrend: { date: string; cumulative: number }[];
+  callPnlByDate: { date: string; dateFull: string; callPnl: number }[];
+  ytdCallPnl: number;
+  ytdPnl: number;
+  ytdCarryPnl: number;
+}) {
+  const gap = ytdPnl - ytdCarryPnl;
+  const callExplains = ytdCallPnl;
+  const unexplained = gap - callExplains;
+  const explainPct = gap !== 0 ? Math.abs(callExplains / gap) * 100 : 0;
+
+  return (
+    <div className="space-y-4">
+      {/* 갭 분석 요약 */}
+      <div className="grid gap-3 sm:grid-cols-4">
+        <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500">YTD PnL</p>
+          <p className={`mt-1 font-mono text-lg font-bold ${ytdPnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+            {ytdPnl >= 0 ? '+' : ''}{ytdPnl.toFixed(2)}억
+          </p>
+        </div>
+        <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500">YTD Carry PnL</p>
+          <p className={`mt-1 font-mono text-lg font-bold ${ytdCarryPnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+            {ytdCarryPnl >= 0 ? '+' : ''}{ytdCarryPnl.toFixed(2)}억
+          </p>
+        </div>
+        <div className="rounded-lg bg-violet-50 dark:bg-violet-900/20 p-3 border border-violet-200 dark:border-violet-800">
+          <p className="text-[10px] uppercase tracking-wider text-violet-500 dark:text-violet-400">갭 (PnL − Carry)</p>
+          <p className={`mt-1 font-mono text-lg font-bold ${gap >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+            {gap >= 0 ? '+' : ''}{gap.toFixed(2)}억
+          </p>
+        </div>
+        <div className="rounded-lg bg-rose-50 dark:bg-rose-900/20 p-3 border border-rose-200 dark:border-rose-800">
+          <p className="text-[10px] uppercase tracking-wider text-rose-500 dark:text-rose-400">Call PnL (설명력 {explainPct.toFixed(0)}%)</p>
+          <p className={`mt-1 font-mono text-lg font-bold ${callExplains >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+            {callExplains >= 0 ? '+' : ''}{callExplains.toFixed(2)}억
+          </p>
+          <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+            미설명: {unexplained >= 0 ? '+' : ''}{unexplained.toFixed(2)}억
+          </p>
+        </div>
+      </div>
+
+      {/* 날짜별 콜 손익 바 차트 (간단한 SVG) */}
+      {callPnlByDate.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">날짜별 콜 손익 (억)</p>
+          <div className="flex items-end gap-2">
+            {callPnlByDate.map((d) => {
+              const maxAbs = Math.max(...callPnlByDate.map((x) => Math.abs(x.callPnl)), 1);
+              const barH = Math.max(Math.abs(d.callPnl) / maxAbs * 80, 4);
+              const isPos = d.callPnl >= 0;
+              return (
+                <div key={d.dateFull} className="flex flex-col items-center gap-1 min-w-[48px]">
+                  <span className={`text-[10px] font-mono font-semibold ${isPos ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                    {isPos ? '+' : ''}{d.callPnl.toFixed(1)}
+                  </span>
+                  <div
+                    className={`w-8 rounded-t ${isPos ? 'bg-emerald-400 dark:bg-emerald-600' : 'bg-rose-400 dark:bg-rose-600'}`}
+                    style={{ height: `${barH}px` }}
+                  />
+                  <span className="text-[10px] text-gray-400">{d.date}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Call PnL 이벤트 테이블
+function CallPnlTable({ items }: { items: CallPnlItem[] }) {
+  const fmtEok = (v: number) => {
+    const eok = v / 1e8;
+    return `${eok >= 0 ? '+' : ''}${eok.toFixed(2)}`;
+  };
+
+  return (
+    <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 bg-white dark:bg-gray-900 z-10">
+          <tr className="border-b border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
+            <th className="py-2 px-3 text-left font-medium">콜일</th>
+            <th className="py-2 px-3 text-left font-medium">MTM 종목</th>
+            <th className="py-2 px-3 text-left font-medium">자산 종목</th>
+            <th className="py-2 px-3 text-left font-medium">캐리 종목</th>
+            <th className="py-2 px-3 text-center font-medium">구조유형</th>
+            <th className="py-2 px-3 text-right font-medium">MTM Δ</th>
+            <th className="py-2 px-3 text-right font-medium">자산 Δ</th>
+            <th className="py-2 px-3 text-right font-medium">캐리 Δ</th>
+            <th className="py-2 px-3 text-right font-medium">합계 (억)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, idx) => (
+            <tr key={`${item.objCd}-${idx}`} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+              <td className="py-2 px-3 font-mono text-xs text-gray-700 dark:text-gray-300">
+                {item.callDtDisplay}
+              </td>
+              <td className="py-2 px-3 font-mono text-xs text-gray-700 dark:text-gray-300">
+                {item.objCd}
+              </td>
+              <td className="py-2 px-3 font-mono text-xs text-gray-600 dark:text-gray-400">
+                {item.assetObjCd || '-'}
+              </td>
+              <td className="py-2 px-3 font-mono text-xs text-gray-600 dark:text-gray-400">
+                {item.carryObjCd || '-'}
+              </td>
+              <td className="py-2 px-3 text-center">
+                <span className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 max-w-[100px] truncate">
+                  {item.structType || '-'}
+                </span>
+              </td>
+              <td className={`py-2 px-3 text-right font-mono text-xs font-semibold ${
+                item.mtmDelta >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+              }`}>
+                {fmtEok(item.mtmDelta)}
+              </td>
+              <td className={`py-2 px-3 text-right font-mono text-xs font-semibold ${
+                item.assetDelta >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+              }`}>
+                {fmtEok(item.assetDelta)}
+              </td>
+              <td className={`py-2 px-3 text-right font-mono text-xs ${
+                item.carryDelta !== 0
+                  ? item.carryDelta >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                  : 'text-gray-400 dark:text-gray-500'
+              }`}>
+                {item.carryDelta !== 0 ? fmtEok(item.carryDelta) : '-'}
+              </td>
+              <td className={`py-2 px-3 text-right font-mono text-xs font-bold ${
+                item.totalPnlEok >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+              }`}>
+                {item.totalPnlEok >= 0 ? '+' : ''}{item.totalPnlEok.toFixed(2)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-gray-300 dark:border-gray-600 font-semibold text-xs">
+            <td colSpan={5} className="py-2 px-3 text-right text-gray-500 dark:text-gray-400">
+              합계 ({items.length}건)
+            </td>
+            <td className={`py-2 px-3 text-right font-mono ${
+              items.reduce((s, i) => s + i.mtmDelta, 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+            }`}>
+              {fmtEok(items.reduce((s, i) => s + i.mtmDelta, 0))}
+            </td>
+            <td className={`py-2 px-3 text-right font-mono ${
+              items.reduce((s, i) => s + i.assetDelta, 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+            }`}>
+              {fmtEok(items.reduce((s, i) => s + i.assetDelta, 0))}
+            </td>
+            <td className={`py-2 px-3 text-right font-mono ${
+              items.reduce((s, i) => s + i.carryDelta, 0) !== 0
+                ? items.reduce((s, i) => s + i.carryDelta, 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                : 'text-gray-400 dark:text-gray-500'
+            }`}>
+              {items.reduce((s, i) => s + i.carryDelta, 0) !== 0
+                ? fmtEok(items.reduce((s, i) => s + i.carryDelta, 0))
+                : '-'}
+            </td>
+            <td className={`py-2 px-3 text-right font-mono font-bold ${
+              items.reduce((s, i) => s + i.totalPnlEok, 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+            }`}>
+              {items.reduce((s, i) => s + i.totalPnlEok, 0) >= 0 ? '+' : ''}
+              {items.reduce((s, i) => s + i.totalPnlEok, 0).toFixed(2)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   );
 }
 

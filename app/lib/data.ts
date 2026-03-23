@@ -2715,3 +2715,187 @@ export async function fetchGapAnalysis(targetDate?: string): Promise<{
     return { data: [], trend: [], details: [], stdDt: '' };
   }
 }
+
+// ——— 콜 손익 (Call PnL) ———
+
+export type CallPnlItem = {
+  objCd: string; // MTM 종목코드
+  callDt: string; // 콜 날짜 (YYYYMMDD)
+  callDtDisplay: string; // MM/DD
+  mtmSpNum: string; // MTM sp_num
+  assetObjCd: string | null; // 자산 종목코드
+  carryObjCd: string | null; // 캐리 종목코드
+  mtmDelta: number; // MTM 평가변동 (원)
+  assetDelta: number; // 자산 평가변동 (원)
+  carryDelta: number; // 캐리 평가변동 (원)
+  totalPnl: number; // 합산 (원)
+  totalPnlEok: number; // 합산 (억)
+  curr: string;
+  structType: string;
+};
+
+/**
+ * 콜 손익 계산
+ * - MTM헤지의 avg_prc가 0이 되는 시점(콜)에서의 평가변동
+ * - MTM 변동 + 매핑 자산(SP_N-1) 변동 + 캐리(SP_N+1) 변동 합산
+ * - YTD PnL과 Carry PnL 차이 분석용
+ */
+export async function fetchCallPnl(): Promise<{
+  items: CallPnlItem[];
+  ytdCallPnl: number; // YTD 누적 콜손익 (억)
+  callPnlByDate: { date: string; dateFull: string; callPnl: number }[]; // 날짜별 콜손익 (억)
+}> {
+  noStore();
+  try {
+    // 1) 콜된 MTM 종목 가져오기 (올해 데이터만)
+    const calledResult = await sql`
+      SELECT s.obj_cd, s.call_dt, s.curr,
+             CONCAT_WS(' / ', NULLIF(s.type1,''), NULLIF(s.type2,''), NULLIF(s.type3,'')) AS struct_type,
+             b.sp_num
+      FROM strucprdp s
+      JOIN breakdownprc b ON b.obj_cd = s.obj_cd
+      WHERE s.call_yn = 'Y'
+        AND s.tp = 'MTM'
+        AND s.call_dt IS NOT NULL
+        AND s.call_dt ~ '^[0-9]{8}$'
+        AND s.call_dt >= '20260101'
+      GROUP BY s.obj_cd, s.call_dt, s.curr, s.type1, s.type2, s.type3, b.sp_num
+      ORDER BY s.call_dt
+    `;
+
+    const items: CallPnlItem[] = [];
+
+    for (const row of calledResult.rows) {
+      const mtmObjCd = String(row.obj_cd);
+      const callDt = String(row.call_dt);
+      const mtmSpNum = String(row.sp_num);
+      const curr = String(row.curr || 'KRW');
+      const structType = String(row.struct_type || '');
+
+      // sp_num에서 숫자 추출
+      const spMatch = mtmSpNum.match(/^SP(\d+)/);
+      if (!spMatch) continue;
+      const spNo = parseInt(spMatch[1], 10);
+      const assetSpNum = `SP${spNo - 1}`;
+      const carrySpNum = `SP${spNo + 1}`;
+
+      // 2) MTM 전일 평가 (콜 직전, avg_prc != 0인 마지막 날)
+      const mtmPrev = await sql`
+        SELECT avg_prc FROM breakdownprc
+        WHERE obj_cd = ${mtmObjCd} AND sp_num = ${mtmSpNum}
+          AND std_dt < ${callDt} AND avg_prc != 0
+        ORDER BY std_dt DESC LIMIT 1
+      `;
+      const mtmPrevVal = mtmPrev.rows[0]
+        ? Number(mtmPrev.rows[0].avg_prc)
+        : 0;
+      // MTM → 0 이므로 delta = 0 - prev = -prev
+      const mtmDelta = -mtmPrevVal;
+
+      // 3) 자산(SP_N-1) 변동
+      const assetResult = await sql`
+        WITH dates AS (
+          SELECT ${callDt} AS curr_dt,
+                 (SELECT MAX(std_dt) FROM breakdownprc
+                  WHERE sp_num = ${assetSpNum} AND std_dt < ${callDt}) AS prev_dt
+        )
+        SELECT
+          b1.obj_cd,
+          b1.avg_prc AS curr_prc,
+          b2.avg_prc AS prev_prc
+        FROM dates d
+        JOIN breakdownprc b1 ON b1.sp_num = ${assetSpNum} AND b1.std_dt = d.curr_dt
+        JOIN breakdownprc b2 ON b2.sp_num = ${assetSpNum} AND b2.std_dt = d.prev_dt
+          AND b2.obj_cd = b1.obj_cd AND b2.tp = b1.tp
+      `;
+      let assetDelta = 0;
+      let assetObjCd: string | null = null;
+      if (assetResult.rows[0]) {
+        assetObjCd = String(assetResult.rows[0].obj_cd);
+        assetDelta =
+          Number(assetResult.rows[0].curr_prc) -
+          Number(assetResult.rows[0].prev_prc);
+      }
+
+      // 4) 캐리(SP_N+1) 변동 (있으면)
+      const carryCheck = await sql`
+        SELECT DISTINCT obj_cd FROM breakdownprc
+        WHERE sp_num = ${carrySpNum} LIMIT 1
+      `;
+      let carryDelta = 0;
+      let carryObjCd: string | null = null;
+      if (carryCheck.rows[0]) {
+        // 캐리인지 확인 (strucprdp.tp = '캐리')
+        const isCarry = await sql`
+          SELECT s.tp FROM strucprdp s
+          WHERE s.obj_cd = ${String(carryCheck.rows[0].obj_cd)}
+        `;
+        if (isCarry.rows[0] && String(isCarry.rows[0].tp) === '캐리') {
+          const carryResult = await sql`
+            WITH dates AS (
+              SELECT ${callDt} AS curr_dt,
+                     (SELECT MAX(std_dt) FROM breakdownprc
+                      WHERE sp_num = ${carrySpNum} AND std_dt < ${callDt}) AS prev_dt
+            )
+            SELECT
+              b1.obj_cd,
+              b1.avg_prc AS curr_prc,
+              b2.avg_prc AS prev_prc
+            FROM dates d
+            JOIN breakdownprc b1 ON b1.sp_num = ${carrySpNum} AND b1.std_dt = d.curr_dt
+            JOIN breakdownprc b2 ON b2.sp_num = ${carrySpNum} AND b2.std_dt = d.prev_dt
+              AND b2.obj_cd = b1.obj_cd AND b2.tp = b1.tp
+          `;
+          if (carryResult.rows[0]) {
+            carryObjCd = String(carryResult.rows[0].obj_cd);
+            carryDelta =
+              Number(carryResult.rows[0].curr_prc) -
+              Number(carryResult.rows[0].prev_prc);
+          }
+        }
+      }
+
+      const totalPnl = mtmDelta + assetDelta + carryDelta;
+      items.push({
+        objCd: mtmObjCd,
+        callDt,
+        callDtDisplay: `${callDt.slice(4, 6)}/${callDt.slice(6, 8)}`,
+        mtmSpNum,
+        assetObjCd,
+        carryObjCd,
+        mtmDelta,
+        assetDelta,
+        carryDelta,
+        totalPnl,
+        totalPnlEok: Math.round((totalPnl / 100000000) * 100) / 100,
+        curr,
+        structType,
+      });
+    }
+
+    // YTD 누적
+    const ytdCallPnl =
+      Math.round(
+        items.reduce((s, i) => s + i.totalPnl, 0) / 100000000 * 100,
+      ) / 100;
+
+    // 날짜별 집계
+    const byDateMap = new Map<string, number>();
+    for (const item of items) {
+      const prev = byDateMap.get(item.callDt) || 0;
+      byDateMap.set(item.callDt, prev + item.totalPnl);
+    }
+    const callPnlByDate = [...byDateMap.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([dt, pnl]) => ({
+        date: `${dt.slice(4, 6)}/${dt.slice(6, 8)}`,
+        dateFull: dt,
+        callPnl: Math.round((pnl / 100000000) * 100) / 100,
+      }));
+
+    return { items, ytdCallPnl, callPnlByDate };
+  } catch (error) {
+    console.error('fetchCallPnl Error:', error);
+    return { items: [], ytdCallPnl: 0, callPnlByDate: [] };
+  }
+}
